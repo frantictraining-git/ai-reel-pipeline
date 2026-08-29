@@ -1,0 +1,16 @@
+.DS_Store
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore large generated video jobs and clean media (prevents GitHub upload limits)
+jobs/
+
+# Ignore large downloaded AI models (Whisper, etc.)
+models/
+
+# Ignore virtual environments and secrets
+venv/
+env/
+.env

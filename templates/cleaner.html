@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Speech Cleaner — LondonGaze</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css?v=6">
+<style>
+  .slider-row { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .slider-row label { width: 160px; font-size: 13px; color: var(--text-dim); flex-shrink: 0; }
+  .slider-row input[type=range] { flex: 1; accent-color: var(--accent); }
+  .slider-row .val { font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: var(--accent); min-width: 42px; text-align: right; }
+  .slider-row select { flex: 1; padding: 8px 12px; font-size: 13px; border-radius: var(--radius-pill); border: 1px solid var(--border); background: rgba(255,255,255,0.4); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); color: var(--text); box-shadow: var(--shadow-inset); outline: none; }
+  .hint { font-size: 11.5px; color: var(--text-faint); margin-top: 4px; margin-left: 172px; }
+  .checkbox-row { display: flex; align-items: center; gap: 8px; margin-left: 172px; margin-top: 18px; font-size: 13px; color: var(--text-dim); cursor: pointer; }
+  .checkbox-row input { accent-color: var(--accent); width: 16px; height: 16px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="wordmark">REEL<span>PIPELINE</span></div>
+    <p class="tagline">Match the cut. Keep the footage yours.<br>Runs entirely on this machine — nothing you drop here leaves it.</p>
+  </header>
+
+  <nav class="tab-nav">
+    <a href="/" class="tab-link">Reel Pipeline</a>
+    <a href="/cleaner" class="tab-link active">Speech Cleaner</a>
+    <a href="/history" class="tab-link">Job History</a>
+  </nav>
+
+  <!-- STEP 1: Upload -->
+  <section class="step" id="step1">
+    <div class="step-head">
+      <span class="step-num">01</span>
+      <div>
+        <h2>Upload your video</h2>
+        <p class="step-desc">Drop any talking-head, speech, or interview recording. The cleaner will use Whisper AI to transcribe and cut word-by-word.</p>
+      </div>
+    </div>
+
+    <div class="dropzone" id="dz-video">
+      <input type="file" id="input-video" accept="video/*" hidden>
+      <div class="dz-icon">＋</div>
+      <div class="dz-label">Drop your video, or click to browse</div>
+      <div class="dz-filename" id="fn-video"></div>
+    </div>
+  </section>
+
+  <!-- STEP 2: Settings -->
+  <section class="step disabled" id="step2">
+    <div class="step-head">
+      <span class="step-num">02</span>
+      <div>
+        <h2>Adjust settings</h2>
+        <p class="step-desc">Configure exactly how aggressively you want to cut.</p>
+      </div>
+    </div>
+
+    <div class="slider-row">
+      <label>AI Model</label>
+      <select id="sel-model">
+        <option value="tiny">Tiny (Fastest, slightly less accurate)</option>
+        <option value="base" selected>Base (Recommended)</option>
+        <option value="small">Small (Slower, highly accurate)</option>
+      </select>
+    </div>
+    <div class="hint">The Whisper AI model size to use for transcription.</div>
+
+    <div class="slider-row" style="margin-top:18px;">
+      <label>Min gap to remove</label>
+      <input type="range" id="sl-gap" min="0.1" max="2.0" step="0.1" value="0.4">
+      <span class="val" id="val-gap">0.4 s</span>
+    </div>
+    <div class="hint">Only silences longer than this get cut. Raise it to keep short natural pauses between sentences.</div>
+
+    <div class="slider-row" style="margin-top:18px;">
+      <label>Padding</label>
+      <input type="range" id="sl-padding" min="0.0" max="0.3" step="0.01" value="0.08">
+      <span class="val" id="val-padding">0.08 s</span>
+    </div>
+    <div class="hint">Breathing room kept around each word so cuts don't feel too abrupt.</div>
+
+    <label class="checkbox-row">
+      <input type="checkbox" id="cb-fillers" checked>
+      Remove filler words ("um", "uh", "like", "you know")
+    </label>
+
+    <div class="controls" style="margin-top:24px;">
+      <button id="btn-clean" class="btn btn-primary">Process Speech</button>
+    </div>
+
+    <div id="clean-status" class="status hidden"></div>
+  </section>
+
+  <!-- STEP 3: Result -->
+  <section class="step disabled" id="step3">
+    <div class="step-head">
+      <span class="step-num">03</span>
+      <div>
+        <h2>Download cleaned video</h2>
+        <p class="step-desc">Preview the result, then download. Cuts are made exactly at word boundaries.</p>
+      </div>
+    </div>
+
+    <div id="result-area" class="result hidden">
+      <div class="stat-grid" id="stat-grid"></div>
+      <div style="margin-top:24px;">
+        <video id="clean-preview" controls style="margin-bottom:12px; max-width: 100%; border-radius: var(--radius);"></video>
+        <div style="display: flex; gap: 12px; margin-top: 12px;">
+          <a id="btn-download" class="btn btn-primary" download="cleaned.mp4" style="flex:1; text-align:center; text-decoration:none;">Download MP4</a>
+          <a id="btn-edl" class="btn btn-primary" download="timeline.edl" style="flex:1; text-align:center; text-decoration:none; background: #2a2a2a; color: white;">Download DaVinci Timeline (.edl)</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span class="mono">speech cleaner · <a href="/" style="color:var(--accent-dim);">← back to reel pipeline</a></span>
+  </footer>
+
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+
+function setStatus(el, msg, kind) {
+  el.textContent = msg;
+  el.className = "status" + (kind ? " " + kind : "");
+  el.classList.remove("hidden");
+}
+function enableStep(el) { el.classList.remove("disabled"); }
+
+// Dropzone wiring
+const dzVideo = $("dz-video");
+const inputVideo = $("input-video");
+let videoFile = null;
+
+dzVideo.addEventListener("click", () => inputVideo.click());
+inputVideo.addEventListener("change", () => pickFiles(Array.from(inputVideo.files)));
+["dragover","dragenter"].forEach(e => dzVideo.addEventListener(e, ev => { ev.preventDefault(); dzVideo.classList.add("dragover"); }));
+["dragleave","dragend"].forEach(e => dzVideo.addEventListener(e, () => dzVideo.classList.remove("dragover")));
+dzVideo.addEventListener("drop", ev => { ev.preventDefault(); dzVideo.classList.remove("dragover"); pickFiles(Array.from(ev.dataTransfer.files)); });
+
+function pickFiles(files) {
+  if (!files.length) return;
+  videoFile = files[0];
+  $("fn-video").textContent = videoFile.name;
+  enableStep($("step2"));
+}
+
+// Slider display
+function wire(sliderId, valId, suffix) {
+  const sl = $(sliderId), vl = $(valId);
+  vl.textContent = sl.value + " " + suffix;
+  sl.addEventListener("input", () => vl.textContent = sl.value + " " + suffix);
+}
+wire("sl-gap", "val-gap", "s");
+wire("sl-padding", "val-padding", "s");
+
+// Clean button
+$("btn-clean").addEventListener("click", async () => {
+  if (!videoFile) return;
+  $("btn-clean").disabled = true;
+  setStatus($("clean-status"), "Transcribing and processing... (Whisper AI will take some time, especially on long videos).", "working");
+  $("result-area").classList.add("hidden");
+
+  const fd = new FormData();
+  fd.append("video", videoFile);
+  fd.append("model_size",  $("sel-model").value);
+  fd.append("min_gap",     $("sl-gap").value);
+  fd.append("padding",     $("sl-padding").value);
+  fd.append("remove_fillers", $("cb-fillers").checked);
+
+  try {
+    const res = await fetch("/api/clean", { method: "POST", body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Clean failed");
+
+    const s = data.stats;
+    const timeSavedPct = ((s.time_saved / s.original_duration) * 100).toFixed(0);
+
+    $("stat-grid").innerHTML = `
+      <div class="stat-box"><span class="stat-val">${fmtTime(s.original_duration)}</span><span class="stat-label">Original</span></div>
+      <div class="stat-box"><span class="stat-val">${fmtTime(s.cleaned_duration)}</span><span class="stat-label">Cleaned</span></div>
+      <div class="stat-box"><span class="stat-val">${s.fillers_removed}</span><span class="stat-label">Fillers Cut</span></div>
+      <div class="stat-box"><span class="stat-val">${s.words_total}</span><span class="stat-label">Words Total</span></div>
+      <div class="stat-box"><span class="stat-val">${timeSavedPct}%</span><span class="stat-label">Tighter</span></div>
+    `;
+
+    $("clean-preview").src = data.video_url;
+    $("btn-download").href = data.video_url;
+    if (data.edl_url) $("btn-edl").href = data.edl_url;
+    
+    $("result-area").classList.remove("hidden");
+    setStatus($("clean-status"), `Done — removed ${s.fillers_removed} filler words, saved ${fmtTime(s.time_saved)} (${timeSavedPct}% shorter).`, "");
+    enableStep($("step3"));
+  } catch(err) {
+    setStatus($("clean-status"), "Error: " + err.message, "error");
+  } finally {
+    $("btn-clean").disabled = false;
+  }
+});
+
+function fmtTime(s) {
+  s = Math.round(s);
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+}
+</script>
+</body>
+</html>

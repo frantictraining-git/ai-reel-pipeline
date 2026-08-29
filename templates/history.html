@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Job History — LondonGaze</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css?v=6">
+<style>
+  .stats-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    margin-top: 16px;
+  }
+  .stat-card {
+    background: rgba(255, 255, 255, 0.3);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 16px 18px;
+    text-align: center;
+    box-shadow: var(--shadow-sm), var(--shadow-inset);
+  }
+  .stat-card .val {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 20px;
+    font-weight: 600;
+    background: var(--accent-grad);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    display: block;
+  }
+  .stat-card .label {
+    font-size: 10.5px;
+    color: var(--text-faint);
+    margin-top: 4px;
+    display: block;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .action-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 20px;
+    margin-bottom: 16px;
+  }
+  .job-card {
+    background: rgba(255, 255, 255, 0.3);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 16px 20px;
+    margin-bottom: 10px;
+    box-shadow: var(--shadow-sm), var(--shadow-inset);
+    display: grid;
+    grid-template-columns: 32px 1fr auto;
+    gap: 14px;
+    align-items: center;
+    transition: all 0.15s ease;
+  }
+  .job-card:hover {
+    background: rgba(255, 255, 255, 0.45);
+    box-shadow: var(--shadow-md);
+  }
+  .job-card input[type="checkbox"] {
+    accent-color: var(--accent);
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+  }
+  .job-info .job-name {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text);
+    display: block;
+  }
+  .job-info .job-meta {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--text-faint);
+    margin-top: 3px;
+    display: flex;
+    gap: 16px;
+  }
+  .job-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .job-actions a {
+    font-size: 12px;
+    font-weight: 500;
+    text-decoration: none;
+    padding: 5px 14px;
+    border-radius: var(--radius-pill);
+    transition: all 0.15s ease;
+    white-space: nowrap;
+  }
+  .act-folder {
+    background: rgba(255, 255, 255, 0.4);
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+  }
+  .act-folder:hover { background: rgba(255, 255, 255, 0.6); }
+  .act-preview {
+    background: rgba(255, 255, 255, 0.4);
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+  }
+  .act-preview:hover { background: rgba(255, 255, 255, 0.6); }
+  .act-video {
+    background: var(--accent-grad);
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(124, 92, 191, 0.2);
+  }
+  .act-video:hover { box-shadow: 0 4px 16px rgba(124, 92, 191, 0.3); transform: translateY(-1px); }
+  .act-edl {
+    background: linear-gradient(135deg, #5eb8b3, #4a9e99);
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(47, 181, 173, 0.2);
+  }
+  .act-edl:hover { box-shadow: 0 4px 16px rgba(47, 181, 173, 0.3); transform: translateY(-1px); }
+  .empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-faint);
+    font-size: 14px;
+  }
+  .btn-danger {
+    background: linear-gradient(135deg, #e74c3c, #c0392b);
+    color: #fff;
+    box-shadow: 0 2px 12px rgba(231, 76, 60, 0.25);
+  }
+  .btn-danger:hover:not(:disabled) {
+    box-shadow: 0 4px 20px rgba(231, 76, 60, 0.35);
+    transform: translateY(-1px);
+  }
+
+  @media (max-width: 560px) {
+    .stats-row { grid-template-columns: 1fr; }
+    .job-card { grid-template-columns: 28px 1fr; }
+    .job-actions { grid-column: 1 / -1; justify-content: flex-start; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="wordmark">REEL<span>PIPELINE</span></div>
+    <p class="tagline">Match the cut. Keep the footage yours.<br>Runs entirely on this machine — nothing you drop here leaves it.</p>
+  </header>
+
+  <nav class="tab-nav">
+    <a href="/" class="tab-link">Reel Pipeline</a>
+    <a href="/cleaner" class="tab-link">Speech Cleaner</a>
+    <a href="/history" class="tab-link active">Job History</a>
+  </nav>
+    
+    <div class="step">
+      <div class="step-head">
+        <div class="step-num">03</div>
+        <div>
+          <h2>Job History</h2>
+          <p class="step-desc">Manage past jobs and free up disk space.</p>
+        </div>
+      </div>
+
+      <div class="stats-row">
+        <div class="stat-card">
+          <span class="val" id="total-jobs">0</span>
+          <span class="label">Total Jobs</span>
+        </div>
+        <div class="stat-card">
+          <span class="val" id="total-size">0 Bytes</span>
+          <span class="label">Disk Used</span>
+        </div>
+        <div class="stat-card">
+          <span class="val" id="disk-free">Loading...</span>
+          <span class="label">Available</span>
+        </div>
+      </div>
+
+      <div class="action-bar">
+        <label class="checkbox"><input type="checkbox" id="selectAll"> Select All</label>
+        <button id="btn-delete" class="btn btn-danger" disabled>Delete Selected</button>
+      </div>
+
+      <div id="job-list"></div>
+    </div>
+    
+    <footer>
+      Running locally on port <span class="mono">5050</span>.
+    </footer>
+  </div>
+
+  <script>
+    const $ = id => document.getElementById(id);
+
+    function formatBytes(bytes) {
+      if (bytes === 0) return '0 Bytes';
+      const k = 1024, sizes = ['Bytes', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    function formatDate(isoString) {
+      const d = new Date(isoString);
+      return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+    }
+
+    async function loadJobs() {
+      try {
+        const res = await fetch('/api/jobs');
+        const data = await res.json();
+        
+        const list = $('job-list');
+        list.innerHTML = '';
+        
+        if (data.disk_free) $('disk-free').innerText = formatBytes(data.disk_free);
+
+        if (data.jobs.length === 0) {
+          list.innerHTML = '<div class="empty-state">No past jobs found.</div>';
+          $('total-jobs').innerText = '0';
+          $('total-size').innerText = '0 Bytes';
+          return;
+        }
+
+        let totalSize = 0;
+
+        data.jobs.forEach(job => {
+          totalSize += job.size_bytes;
+          const videoUrl = `/api/media/${job.job_id}/${job.video_file || 'cleaned.mp4'}`;
+          const edlUrl = `/api/media/${job.job_id}/timeline.edl`;
+
+          const card = document.createElement('div');
+          card.className = 'job-card';
+          card.innerHTML = `
+            <input type="checkbox" class="job-cb" value="${job.job_id}">
+            <div class="job-info">
+              <span class="job-name">${job.filename || 'Unknown'}</span>
+              <div class="job-meta">
+                <span>${formatDate(job.timestamp)}</span>
+                <span>${formatBytes(job.size_bytes)}</span>
+                <span>${job.job_id}</span>
+              </div>
+            </div>
+            <div class="job-actions">
+              <a href="#" onclick="openFolder('${job.job_id}'); return false;" class="act-folder">📂 Folder</a>
+              <a href="${videoUrl}" target="_blank" class="act-preview">Preview</a>
+              <a href="${videoUrl}" download class="act-video">Video ↓</a>
+              <a href="${edlUrl}" download="timeline.edl" class="act-edl">EDL ↓</a>
+            </div>
+          `;
+          list.appendChild(card);
+        });
+
+        $('total-jobs').innerText = data.jobs.length;
+        $('total-size').innerText = formatBytes(totalSize);
+
+        attachCheckboxListeners();
+      } catch (err) {
+        $('job-list').innerHTML = '<div class="empty-state" style="color: var(--danger);">Error loading jobs.</div>';
+      }
+    }
+
+    async function openFolder(jobId) {
+      try {
+        await fetch(`/api/jobs/open/${jobId}`, { method: 'POST' });
+      } catch (err) {
+        console.error("Failed to open folder", err);
+      }
+    }
+
+    function attachCheckboxListeners() {
+      const checkboxes = document.querySelectorAll('.job-cb');
+      const selectAll = $('selectAll');
+      const btnDelete = $('btn-delete');
+
+      const updateDeleteBtn = () => {
+        const checkedCount = document.querySelectorAll('.job-cb:checked').length;
+        btnDelete.disabled = checkedCount === 0;
+        btnDelete.innerText = checkedCount > 0 ? `Delete Selected (${checkedCount})` : 'Delete Selected';
+      };
+
+      checkboxes.forEach(cb => cb.addEventListener('change', () => {
+        selectAll.checked = document.querySelectorAll('.job-cb:not(:checked)').length === 0;
+        updateDeleteBtn();
+      }));
+
+      selectAll.addEventListener('change', (e) => {
+        checkboxes.forEach(cb => cb.checked = e.target.checked);
+        updateDeleteBtn();
+      });
+    }
+
+    $('btn-delete').addEventListener('click', async () => {
+      const selected = Array.from(document.querySelectorAll('.job-cb:checked')).map(cb => cb.value);
+      if (!confirm(`Are you sure you want to permanently delete ${selected.length} job folders?`)) return;
+
+      $('btn-delete').disabled = true;
+      $('btn-delete').innerText = "Deleting...";
+
+      try {
+        await fetch('/api/jobs/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ job_ids: selected })
+        });
+        await loadJobs();
+        $('selectAll').checked = false;
+        $('btn-delete').disabled = true;
+        $('btn-delete').innerText = "Delete Selected";
+      } catch (err) {
+        alert("Failed to delete jobs.");
+        $('btn-delete').innerText = "Error";
+      }
+    });
+
+    loadJobs();
+  </script>
+</body>
+</html>

@@ -1,0 +1,38 @@
+REEL PIPELINE & SPEECH CLEANER - VERSION HISTORY
+
+v2.4 - Offline Portability Update
+- Re-architected Whisper AI to permanently store and load models from the local `./models` directory instead of the volatile `~/.cache` system folder.
+- Resolved SHA256 checksum corruption errors caused by Python's urllib downloader by manually verifying blob downloads.
+- App is now 100% portable and can be run offline on external drives.
+
+v2.3 - Professional Workflow Integration (DaVinci Resolve)
+- Engineered a CMX3600 Edit Decision List (.edl) generator.
+- App now exports a `timeline.edl` file alongside the MP4.
+- Allows users to import the AI's exact cut decisions directly into DaVinci Resolve or Premiere Pro, enabling RAW/HDR color grading on the original high-fidelity media before final H.265 export.
+- Updated EDL generation to accurately extract and pass the original uploaded filename rather than a generic "input.mov" to fix Resolve "Media Offline" linking errors.
+
+v2.2 - Audio Physics & Cross-Fade Patch
+- Fixed the "Tock Tock" audio popping sound caused by abrupt digital soundwave slicing (Zero-crossing violation).
+- Injected a 30-millisecond `afade` (audio cross-fade) to the start and end of every segmented clip via FFmpeg.
+
+v2.1 - FFmpeg Architecture Overhaul
+- Bypassed reliance on global system FFmpeg and broken CapCut binaries.
+- Integrated `imageio-ffmpeg` and built a local, self-contained `/bin` environment with exact symlinks.
+- Fixed `Errno 2: No such file or directory` during Whisper subprocess execution by mounting the local bin dynamically to the Flask `os.environ["PATH"]`.
+- Rewrote `get_duration()` to use fast metadata reading rather than full-file decoding.
+
+v2.0 - Whisper AI Speech Cleaner
+- Completely replaced the crude, volume-based audio silence detector with OpenAI's Whisper AI neural network.
+- Enabled true word-level timestamp extraction.
+- Added intelligent Filler Word removal ("um", "uh", "like", "you know").
+- Replaced the simple dB threshold UI with advanced AI Model Selection (Tiny, Base, Small) and Padding controls.
+
+v1.1 - Feature Pruning
+- Removed YouTube/Instagram URL downloading functionality based on user workflow preference.
+- Stripped all `yt-dlp` dependencies and cookie extraction logic.
+- Focused the UI purely on local video file uploads.
+
+v1.0 - Initial Release
+- Basic Reel Pipeline established.
+- Flask server running on port 5050.
+- Standard 9:16 portrait auto-cropping and basic watermark overlay functionality.
