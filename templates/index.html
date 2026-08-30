@@ -16,9 +16,10 @@
     <p class="tagline">Match the cut. Keep the footage yours.<br>Runs entirely on this machine — nothing you drop here leaves it.</p>
   </header>
 
-  <nav class="tab-nav">
-    <a href="/" class="tab-link active">Reel Pipeline</a>
+    <nav class="tab-nav">
+    <a href="/" class="tab-link active">Beat Sync Editor</a>
     <a href="/cleaner" class="tab-link">Speech Cleaner</a>
+    <a href="/sorter" class="tab-link">Media Sorter</a>
     <a href="/history" class="tab-link">Job History</a>
   </nav>
 
@@ -50,7 +51,15 @@
           <strong>Tip:</strong> Lower values (15-20) are more sensitive and catch rapid flash-cuts. Higher values ignore fast camera movements.
         </div>
       </div>
+      
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <label class="slider-label">
+          Job Name (Optional)
+          <input type="text" id="job-name" class="mono" placeholder="e.g. food_promo" style="background: rgba(255, 255, 255, 0.4); backdrop-filter: blur(10px); border: 1px solid var(--border); border-radius: var(--radius-pill); color: var(--text); padding: 8px 14px; outline: none; margin-left:10px;">
+        </label>
+      </div>
       <button id="btn-analyze" class="btn btn-primary" disabled>Analyze</button>
+
     </div>
 
     <div id="analyze-status" class="status hidden"></div>
@@ -104,6 +113,7 @@
 
     <div class="controls">
       <label class="checkbox"><input type="checkbox" id="keep-audio"> Keep each clip's original audio</label>
+      <label class="checkbox"><input type="checkbox" id="overlay-audio" checked> Overlay reference video audio track</label>
       <button id="btn-build" class="btn btn-primary" disabled>Build reel</button>
     </div>
 

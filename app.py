@@ -59,10 +59,23 @@ def job_dir(job_id: str) -> Path:
 def index():
     return render_template("index.html")
 
+@app.route("/sorter")
+def sorter():
+    return render_template("sorter.html")
+
+
 
 @app.route("/api/analyze", methods=["POST"])
 def api_analyze():
-    job_id = request.form.get("job_id") or uuid.uuid4().hex[:12]
+    job_id = request.form.get("job_id")
+    if not job_id:
+        job_name = request.form.get("job_name", "").strip()
+        if job_name:
+            import re
+            safe_name = re.sub(r'[^a-zA-Z0-9_\-]', '_', job_name)
+            job_id = f"{safe_name}_{uuid.uuid4().hex[:4]}"
+        else:
+            job_id = uuid.uuid4().hex[:12]
     jdir = JOBS_DIR / job_id
     jdir.mkdir(exist_ok=True)
 
@@ -223,6 +236,7 @@ def api_build():
         return jsonify({"error": "No footage clips uploaded or selected"}), 400
 
     keep_audio = request.form.get("keep_audio") == "true"
+    overlay_audio = request.form.get("overlay_audio") == "true"
     width = int(request.form.get("width", 1080))
     height = int(request.form.get("height", 1920))
     fps = float(request.form.get("fps", 30))
@@ -243,8 +257,10 @@ def api_build():
 
     output_path = jdir / "built_reel.mp4"
     try:
+        ref_matches = list(jdir.glob("reference.*"))
+        ref_path = str(ref_matches[0]) if ref_matches else None
         build(str(rhythm_path), str(clips_dir), str(output_path), width, height, fps, keep_audio,
-              inpoints, clip_tags, progress_file=str(jdir / 'progress.json'))
+              inpoints, clip_tags, progress_file=str(jdir / 'progress.json'), overlay_audio=overlay_audio, reference_path=ref_path)
     except Exception as e:
         return jsonify({"error": f"Build failed: {e}"}), 500
 
@@ -448,3 +464,38 @@ def delete_jobs():
 if __name__ == "__main__":
     print("\nReel Pipeline running at http://localhost:5050\n")
     app.run(host="127.0.0.1", port=5050, debug=False, threaded=True)
+
+
+@app.route("/api/sort_media", methods=["POST"])
+def api_sort_media():
+    folder = request.form.get("folder")
+    categories = request.form.get("categories", "")
+    cats = [c.strip() for c in categories.split(",") if c.strip()]
+    if not folder or not cats:
+        return jsonify({"error": "Missing folder or categories"}), 400
+        
+    prog_file = JOBS_DIR / "sort_progress.json"
+    
+    import threading
+    from sort_media import sort_folder
+    
+    def run_sort():
+        try:
+            sort_folder(folder, cats, str(prog_file))
+        except Exception as e:
+            with open(prog_file, "w") as f:
+                json.dump({"error": str(e)}, f)
+                
+    threading.Thread(target=run_sort).start()
+    return jsonify({"status": "started"})
+
+@app.route("/api/sort_progress")
+def api_sort_progress():
+    prog_file = JOBS_DIR / "sort_progress.json"
+    if prog_file.exists():
+        try:
+            with open(prog_file, "r") as f:
+                return jsonify(json.load(f))
+        except:
+            pass
+    return jsonify({"total": 0, "current": 0, "phase": ""})

@@ -277,6 +277,7 @@ btnBuild.addEventListener("click", async () => {
   const fd = new FormData();
   fd.append("job_id", jobId);
   fd.append("keep_audio", $("keep-audio").checked ? "true" : "false");
+  fd.append("overlay_audio", $("overlay-audio").checked ? "true" : "false");
   fd.append("smart_match", (smartMatchCheckbox.checked && contentTagged) ? "true" : "false");
 
   if (localFolderPath) {

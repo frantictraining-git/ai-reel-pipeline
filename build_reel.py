@@ -81,7 +81,7 @@ def frames_to_tc(frames, fps):
 
 
 def build(rhythm_path: str, clips_dir: str, output: str, width: int, height: int,
-          fps: float, keep_audio: bool, inpoints: dict, clip_tags: dict = None, progress_file: str = None):
+          fps: float, keep_audio: bool, inpoints: dict, clip_tags: dict = None, progress_file: str = None, overlay_audio: bool = False, reference_path: str = None):
     rhythm = json.loads(Path(rhythm_path).read_text())
     shots = rhythm["shots"]
 
@@ -231,6 +231,39 @@ def build(rhythm_path: str, clips_dir: str, output: str, width: int, height: int
         check=True,
     )
 
+    if overlay_audio and reference_path:
+        import shutil
+        mixed_out = Path(output).with_name("mixed_out.mp4")
+        if keep_audio:
+            mix_cmd = [
+                FFMPEG, "-y",
+                "-i", str(output),
+                "-i", str(reference_path),
+                "-filter_complex", "[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=2[a]",
+                "-map", "0:v",
+                "-map", "[a]",
+                "-c:v", "copy",
+                "-c:a", "aac",
+                "-loglevel", "error",
+                str(mixed_out)
+            ]
+        else:
+            mix_cmd = [
+                FFMPEG, "-y",
+                "-i", str(output),
+                "-i", str(reference_path),
+                "-c:v", "copy",
+                "-c:a", "aac",
+                "-map", "0:v:0",
+                "-map", "1:a:0",
+                "-shortest",
+                "-loglevel", "error",
+                str(mixed_out)
+            ]
+        subprocess.run(mix_cmd, check=True)
+        shutil.move(str(mixed_out), str(output))
+
+
     with open(edl_path, "w") as f:
         f.write(edl_content)
 
@@ -270,7 +303,8 @@ def build(rhythm_path: str, clips_dir: str, output: str, width: int, height: int
         # FCPXML times are in rational seconds
         offset_str = f"{int(round(timeline_offset_s * 1000))}/1000s"
         dur_str = f"{int(round(use_duration * 1000))}/1000s"
-        start_str = f"{int(round(in_point * 1000))}/1000s"
+        tc_offset_s = get_start_frames(clip, fps) / fps
+        start_str = f"{int(round((in_point + tc_offset_s) * 1000))}/1000s"
         clip_dur_str = f"{int(round(clip_duration * 1000))}/1000s"
 
         fcpxml_clips.append(
@@ -289,10 +323,12 @@ def build(rhythm_path: str, clips_dir: str, output: str, width: int, height: int
         raw_path = str(clip_path.resolve())
         # Use file://localhost/ explicitly for DaVinci Resolve
         file_url = "file://localhost" + quote(raw_path)
+        asset_tc_offset_s = get_start_frames(clip_path, fps) / fps
+        asset_start_str = f"{int(round(asset_tc_offset_s * 1000))}/1000s"
         cdur_str = f"{int(round(clip_dur * 1000))}/1000s"
         resources_xml += (
             f'        <asset id="{rid}" name="{clip_path.stem}" src="{file_url}" '
-            f'start="0/1s" duration="{cdur_str}" hasVideo="1" format="r1"/>\n'
+            f'start="{asset_start_str}" duration="{cdur_str}" hasVideo="1" format="r1"/>\n'
         )
 
     clips_xml = "\n".join(fcpxml_clips)

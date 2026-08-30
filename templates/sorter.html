@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Media Sorter — LondonGaze</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css?v=7">
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="wordmark">REEL<span>PIPELINE</span></div>
+    <p class="tagline">Organize the chaos. Let AI vision do the sorting.<br>Automatically analyzes and routes your raw footage into the right folders.</p>
+  </header>
+
+    <nav class="tab-nav">
+    <a href="/" class="tab-link">Beat Sync Editor</a>
+    <a href="/cleaner" class="tab-link">Speech Cleaner</a>
+    <a href="/sorter" class="tab-link active">Media Sorter</a>
+    <a href="/history" class="tab-link">Job History</a>
+  </nav>
+
+  <section class="step" style="opacity:1; pointer-events:all;">
+    <div class="step-head">
+      <span class="step-num">01</span>
+      <div>
+        <h2>Select Folder</h2>
+        <p class="step-desc">Pick a folder full of videos on your Mac. The AI will move them into subfolders based on categories.</p>
+      </div>
+    </div>
+
+    <div class="controls" style="margin-top:20px;">
+      <button id="btn-pick-folder" class="btn btn-secondary">Pick Mac Folder</button>
+      <span id="folder-path-display" class="mono" style="margin-left: 12px; font-size:12px; color:var(--accent);">No folder selected</span>
+    </div>
+
+    <div class="controls" style="margin-top:20px; flex-direction:column; align-items:flex-start;">
+      <label class="slider-label" style="width:100%;">
+        Categories to sort by (comma-separated)
+        <input type="text" id="categories" class="mono" value="food,kitchen,interior,person" style="width:100%; margin-top:6px; background: rgba(255, 255, 255, 0.4); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid var(--border); border-radius: var(--radius-pill); color: var(--text); padding: 8px 14px; outline: none; box-shadow: var(--shadow-inset);">
+      </label>
+    </div>
+
+    <div class="controls" style="margin-top:20px;">
+      <button id="btn-sort" class="btn btn-primary" disabled>Sort Media</button>
+    </div>
+
+    <div id="sort-status" class="status hidden"></div>
+  </section>
+
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let selectedFolder = null;
+
+$("btn-pick-folder").addEventListener("click", async () => {
+  $("btn-pick-folder").innerText = "Opening Finder...";
+  try {
+    const res = await fetch("/api/pick_local_folder", { method: "POST" });
+    const data = await res.json();
+    if (data.path) {
+      selectedFolder = data.path;
+      $("folder-path-display").innerText = data.path;
+      $("btn-sort").disabled = false;
+    }
+  } catch(e) {
+    alert("Error picking folder");
+  } finally {
+    $("btn-pick-folder").innerText = "Pick Mac Folder";
+  }
+});
+
+$("btn-sort").addEventListener("click", async () => {
+  if (!selectedFolder) return;
+  
+  $("btn-sort").disabled = true;
+  $("sort-status").classList.remove("hidden");
+  $("sort-status").className = "status working";
+  $("sort-status").innerText = "Warming up AI Vision model...";
+  
+  const fd = new FormData();
+  fd.append("folder", selectedFolder);
+  fd.append("categories", $("categories").value);
+  
+  try {
+    await fetch("/api/sort_media", { method: "POST", body: fd });
+    
+    // Poll progress
+    const intv = setInterval(async () => {
+      try {
+        const r = await fetch("/api/sort_progress");
+        const d = await r.json();
+        
+        if (d.error) {
+          clearInterval(intv);
+          $("sort-status").className = "status error";
+          $("sort-status").innerText = "Error: " + d.error;
+          $("btn-sort").disabled = false;
+          return;
+        }
+        
+        if (d.phase === "Done!") {
+          clearInterval(intv);
+          $("sort-status").className = "status success";
+          $("sort-status").innerText = "✅ Successfully sorted " + d.total + " videos into folders!";
+          $("btn-sort").disabled = false;
+        } else if (d.total > 0) {
+          $("sort-status").innerText = `🚀 ${d.phase} (${d.current}/${d.total})`;
+        }
+      } catch(e){}
+    }, 1000);
+    
+  } catch(e) {
+    $("sort-status").className = "status error";
+    $("sort-status").innerText = "Error starting sort";
+    $("btn-sort").disabled = false;
+  }
+});
+</script>
+</body>
+</html>
