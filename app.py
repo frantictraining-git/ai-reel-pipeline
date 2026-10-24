@@ -274,6 +274,34 @@ def api_build():
             pass
 
     crop_mode = request.form.get("crop_mode", "center")
+    audio_in = float(request.form.get("audio_in", 0.0))
+    audio_volume = float(request.form.get("audio_volume", 1.0))
+
+    # Optional 3D LUT (.cube / .3dl)
+    if request.form.get("clear_lut") == "true":
+        for p in jdir.glob("custom_lut.*"):
+            p.unlink(missing_ok=True)
+    lut_file = request.files.get("lut_file")
+    if lut_file and lut_file.filename:
+        for p in jdir.glob("custom_lut.*"):
+            p.unlink(missing_ok=True)
+        lut_ext = Path(lut_file.filename).suffix or ".cube"
+        lut_file.save(jdir / f"custom_lut{lut_ext}")
+    lut_matches = list(jdir.glob("custom_lut.*"))
+    lut_path = str(lut_matches[0]) if lut_matches else None
+
+    # Optional Custom Audio Track
+    if request.form.get("clear_custom_audio") == "true":
+        for p in jdir.glob("custom_audio.*"):
+            p.unlink(missing_ok=True)
+    custom_audio_file = request.files.get("custom_audio")
+    if custom_audio_file and custom_audio_file.filename:
+        for p in jdir.glob("custom_audio.*"):
+            p.unlink(missing_ok=True)
+        a_ext = Path(custom_audio_file.filename).suffix or ".mp3"
+        custom_audio_file.save(jdir / f"custom_audio{a_ext}")
+    custom_audio_matches = list(jdir.glob("custom_audio.*"))
+    custom_audio_path = str(custom_audio_matches[0]) if custom_audio_matches else None
 
     output_path = jdir / "built_reel.mp4"
     try:
@@ -294,6 +322,10 @@ def api_build():
             reference_path=ref_path,
             shot_plan=shot_plan,
             crop_mode=crop_mode,
+            lut_path=lut_path,
+            custom_audio_path=custom_audio_path,
+            audio_in=audio_in,
+            audio_volume=audio_volume,
         )
     except Exception as e:
         return jsonify({"error": f"Build failed: {e}"}), 500
@@ -335,6 +367,19 @@ def api_job_state(job_id):
         available_clips = sorted([p.name for p in (jdir / "source_clips").iterdir() if p.suffix.lower() in exts and not p.name.startswith(".")])
     elif shot_plan:
         available_clips = sorted(list({s.get("clip") for s in shot_plan if s.get("clip")}))
+    lut_name = None
+    if (jdir / "luts").is_dir():
+        for lp in sorted((jdir / "luts").iterdir()):
+            if lp.suffix.lower() in (".cube", ".3dl"):
+                lut_name = lp.name
+                break
+    custom_audio_name = None
+    if (jdir / "audio").is_dir():
+        for ap in sorted((jdir / "audio").iterdir()):
+            if not ap.name.startswith("."):
+                custom_audio_name = ap.name
+                break
+
     return jsonify({
         "job_id": job_id,
         "job_name": job_name,
@@ -347,6 +392,8 @@ def api_job_state(job_id):
         "folder_missing": folder_missing,
         "available_clips": available_clips,
         "tagged": (jdir / "clip_tags.json").exists(),
+        "lut_name": lut_name,
+        "custom_audio_name": custom_audio_name,
     })
 
 

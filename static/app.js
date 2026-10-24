@@ -21,6 +21,44 @@ let selectedShotIdx = -1;
 let timelineDirty = false;
 const localThumbCache = {};
 
+// Grading / 3D LUT / Custom Audio Track State
+let lutFile = null;
+let clearLutFlag = false;
+let customAudioFile = null;
+let clearCustomAudioFlag = false;
+let audioStartOffset = 0.0;
+let audioVolumePct = 100;
+let activeInspectorSubtab = "trim"; // "trim" | "color"
+
+function defaultGrade() {
+  return {
+    brightness: 0,
+    contrast: 0,
+    saturation: 0,
+    temperature: 0,
+    tint: 0,
+    whites: 0,
+    blacks: 0,
+    vignette: 0,
+    curve: "none",
+    fade_in: 0.0,
+    fade_out: 0.0,
+  };
+}
+
+function ensureShotGrade(shot) {
+  if (!shot) return defaultGrade();
+  if (!shot.grade || typeof shot.grade !== "object") {
+    shot.grade = defaultGrade();
+  } else {
+    const def = defaultGrade();
+    Object.keys(def).forEach((k) => {
+      if (shot.grade[k] === undefined) shot.grade[k] = def[k];
+    });
+  }
+  return shot.grade;
+}
+
 const $ = (id) => document.getElementById(id);
 
 function fmtTime(s) {
@@ -596,16 +634,32 @@ btnTag.addEventListener("click", async () => {
   }
 });
 
-// ---------- Interactive Sequence Timeline & Resize/Drag-to-Reposition Inspector ----------
+// ---------- Interactive Sequence Timeline, Edge Trimming, Audio Track & Grading Inspector ----------
 const tlShotsStrip = $("tl-shots-strip");
+const tlRulerStrip = $("tl-ruler-strip");
 const tlSummary = $("tl-summary");
 const btnMoveLeft = $("btn-move-left");
 const btnMoveRight = $("btn-move-right");
 const btnRebuildOrder = $("btn-rebuild-order");
 
+// Audio Track DOM
+const inputCustomAudio = $("input-custom-audio");
+const btnAddAudio = $("btn-add-audio");
+const btnClearAudio = $("btn-clear-audio");
+const tlAudioClip = $("tl-audio-clip");
+const tlAudioTrimLeft = $("tl-audio-trim-left");
+const tlAudioTitle = $("tl-audio-title");
+const tlAudioOffsetLabel = $("tl-audio-offset-label");
+const tlAudioVol = $("tl-audio-vol");
+const tlAudioVolLabel = $("tl-audio-vol-label");
+
 const inspEmpty = $("insp-empty");
 const inspControls = $("insp-controls");
 const inspShotBadge = $("insp-shot-badge");
+const inspSubtabs = $("insp-subtabs");
+const inspPaneTrim = $("insp-pane-trim");
+const inspPaneColor = $("insp-pane-color");
+
 const inspClipSelect = $("insp-clip-select");
 const inspInpointSlider = $("insp-inpoint-slider");
 const inspInpoint = $("insp-inpoint");
@@ -617,10 +671,84 @@ const inspPanReadout = $("insp-pan-readout");
 const btnResetReframe = $("btn-reset-reframe");
 const btnApplyTimeline = $("btn-apply-timeline");
 
+// Grading Inspector DOM
+const vignettePreviewLayer = $("vignette-preview-layer");
+const slGradeBrightness = $("sl-grade-brightness");
+const valGradeBrightness = $("val-grade-brightness");
+const slGradeContrast = $("sl-grade-contrast");
+const valGradeContrast = $("val-grade-contrast");
+const slGradeSaturation = $("sl-grade-saturation");
+const valGradeSaturation = $("val-grade-saturation");
+const slGradeTemp = $("sl-grade-temp");
+const valGradeTemp = $("val-grade-temp");
+const slGradeTint = $("sl-grade-tint");
+const valGradeTint = $("val-grade-tint");
+const slGradeWhites = $("sl-grade-whites");
+const valGradeWhites = $("val-grade-whites");
+const slGradeBlacks = $("sl-grade-blacks");
+const valGradeBlacks = $("val-grade-blacks");
+const slGradeVignette = $("sl-grade-vignette");
+const valGradeVignette = $("val-grade-vignette");
+const selGradeCurve = $("sel-grade-curve");
+const numGradeFadeIn = $("num-grade-fadein");
+const numGradeFadeOut = $("num-grade-fadeout");
+const inputLut = $("input-lut");
+const fnLut = $("fn-lut");
+const btnClearLut = $("btn-clear-lut");
+const btnGradeAll = $("btn-grade-all");
+const btnResetGrade = $("btn-reset-grade");
+
+function switchInspectorSubtab(subtab) {
+  activeInspectorSubtab = subtab === "color" ? "color" : "trim";
+  if (inspPaneTrim) inspPaneTrim.classList.toggle("hidden", activeInspectorSubtab !== "trim");
+  if (inspPaneColor) inspPaneColor.classList.toggle("hidden", activeInspectorSubtab !== "color");
+  if (inspSubtabs) {
+    Array.from(inspSubtabs.querySelectorAll(".insp-subtab")).forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.subtab === activeInspectorSubtab);
+    });
+  }
+}
+
+if (inspSubtabs) {
+  inspSubtabs.addEventListener("click", (e) => {
+    const btn = e.target.closest(".insp-subtab");
+    if (!btn || !btn.dataset.subtab) return;
+    switchInspectorSubtab(btn.dataset.subtab);
+  });
+}
+
+function applyGradeFilterToPreview() {
+  if (!sourcePreview) return;
+  if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) {
+    sourcePreview.style.filter = "none";
+    if (vignettePreviewLayer) vignettePreviewLayer.style.opacity = "0";
+    return;
+  }
+  const g = ensureShotGrade(shotPlan[selectedShotIdx]);
+  const b = 1 + (Number(g.brightness || 0) / 100) + (Number(g.whites || 0) / 220) + (Number(g.blacks || 0) / 220);
+  let c = 1 + (Number(g.contrast || 0) / 85) + (Number(g.whites || 0) / 260) - (Number(g.blacks || 0) / 260);
+  if (g.curve === "medium_contrast") c *= 1.12;
+  else if (g.curve === "strong_contrast") c *= 1.25;
+  else if (g.curve === "lighter") c *= 0.95;
+  else if (g.curve === "darker") c *= 1.08;
+  const s = Math.max(0, 1 + Number(g.saturation || 0) / 100);
+  const temp = Number(g.temperature || 0);
+  const tint = Number(g.tint || 0);
+  const sepia = Math.min(0.35, Math.abs(temp) / 260);
+  const hue = Math.round((temp * -0.15) + (tint * 0.25));
+
+  sourcePreview.style.filter = `brightness(${Math.max(0.2, b).toFixed(2)}) contrast(${Math.max(0.3, c).toFixed(2)}) saturate(${s.toFixed(2)}) sepia(${sepia.toFixed(2)}) hue-rotate(${hue}deg)`;
+  if (vignettePreviewLayer) {
+    const vig = Math.max(0, Math.min(100, Number(g.vignette || 0)));
+    vignettePreviewLayer.style.opacity = (vig / 100).toFixed(2);
+  }
+}
+
 function applyReframeTransformToPreview() {
   if (!sourcePreview) return;
   if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) {
     sourcePreview.style.transform = "translate(0%, 0%) scale(1)";
+    applyGradeFilterToPreview();
     return;
   }
   const shot = shotPlan[selectedShotIdx];
@@ -634,6 +762,7 @@ function applyReframeTransformToPreview() {
   if (inspPanReadout) {
     inspPanReadout.textContent = `Position: X ${panX > 0 ? "+" : ""}${Math.round(panX)}% · Y ${panY > 0 ? "+" : ""}${Math.round(panY)}% (Drag video in monitor)`;
   }
+  applyGradeFilterToPreview();
 }
 
 // Mouse Drag to Reposition & Wheel to Resize inside #reframe-viewport
@@ -747,6 +876,7 @@ function initDraftTimelineFromRhythm() {
       zoom: 100,
       pan_x: 0,
       pan_y: 0,
+      grade: defaultGrade(),
       tag: s.tag || null,
     }));
     renderTimelineTrack();
@@ -764,9 +894,86 @@ function initDraftTimelineFromRhythm() {
     zoom: 100,
     pan_x: 0,
     pan_y: 0,
+    grade: defaultGrade(),
     tag: s.tag || null,
   }));
   renderTimelineTrack();
+}
+
+// Premiere-style Edge Trim Drag State
+let activeEdgeTrim = null; // { idx, side: 'left'|'right', startX, origIn, origDur, clipDur, cardEl, metaEl }
+
+window.addEventListener("mousemove", (e) => {
+  if (!activeEdgeTrim) return;
+  const { idx, side, startX, origIn, origDur, clipDur, cardEl, metaEl } = activeEdgeTrim;
+  const shot = shotPlan[idx];
+  if (!shot) return;
+  const dxPx = e.clientX - startX;
+  const deltaSec = dxPx / 110.0; // 110px per second scale
+
+  if (side === "left") {
+    // Dragging left edge '[' adjusts In-Point and inversely adjusts Duration
+    const maxIn = Math.max(0, origIn + origDur - 0.15);
+    const newIn = Math.max(0, Math.min(maxIn, origIn + deltaSec));
+    const actualDelta = newIn - origIn;
+    const newDur = Math.max(0.15, origDur - actualDelta);
+    shot.in_point = Number(newIn.toFixed(2));
+    shot.duration = Number(newDur.toFixed(2));
+  } else {
+    // Dragging right edge ']' adjusts Out-Point / Duration
+    const maxDur = Math.max(0.5, clipDur - origIn);
+    const newDur = Math.max(0.15, Math.min(maxDur, origDur + deltaSec));
+    shot.duration = Number(newDur.toFixed(2));
+  }
+
+  const widthPx = Math.max(96, Math.min(340, Math.round(shot.duration * 110)));
+  if (cardEl) cardEl.style.width = `${widthPx}px`;
+  if (metaEl) {
+    metaEl.innerHTML = `<span>In: ${Number(shot.in_point || 0).toFixed(1)}s</span><span>${Number(shot.duration || 0).toFixed(2)}s</span>`;
+  }
+  const totalDur = shotPlan.reduce((acc, s) => acc + Number(s.duration || 0), 0);
+  if (tlSummary) tlSummary.textContent = `${shotPlan.length} shots · ${totalDur.toFixed(2)}s total`;
+  if (selectedShotIdx === idx) {
+    if (inspInpoint) inspInpoint.value = Number(shot.in_point || 0).toFixed(2);
+    if (inspInpointSlider) inspInpointSlider.value = shot.in_point || 0;
+    if (inspDuration) inspDuration.value = Number(shot.duration || 0).toFixed(2);
+  }
+  markTimelineDirty();
+});
+
+window.addEventListener("mouseup", () => {
+  if (activeEdgeTrim) {
+    const trimmedIdx = activeEdgeTrim.idx;
+    const wasLeft = activeEdgeTrim.side === "left";
+    activeEdgeTrim = null;
+    renderTimelineTrack();
+    if (selectedShotIdx === trimmedIdx && wasLeft) {
+      previewSelectedShotInMonitor(false);
+    }
+  }
+});
+
+function renderTimecodeRuler(totalWidthPx, totalDurSec) {
+  if (!tlRulerStrip) return;
+  tlRulerStrip.innerHTML = "";
+  const width = Math.max(480, totalWidthPx);
+  tlRulerStrip.style.width = `${width}px`;
+  if (tlAudioClip) tlAudioClip.style.width = `${width}px`;
+
+  const stepSec = totalDurSec > 25 ? 2 : 1;
+  const totalTicks = Math.max(5, Math.ceil((totalDurSec || 10) / stepSec));
+  const tickWidth = width / totalTicks;
+
+  for (let i = 0; i < totalTicks; i++) {
+    const t = i * stepSec;
+    const mins = Math.floor(t / 60);
+    const secs = Math.floor(t % 60);
+    const tick = document.createElement("div");
+    tick.className = "tl-ruler-tick";
+    tick.style.width = `${tickWidth}px`;
+    tick.textContent = `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+    tlRulerStrip.appendChild(tick);
+  }
 }
 
 function renderTimelineTrack() {
@@ -776,19 +983,28 @@ function renderTimelineTrack() {
   const totalDur = shotPlan.reduce((acc, s) => acc + Number(s.duration || 0), 0);
   tlSummary.textContent = `${shotPlan.length} shots · ${totalDur.toFixed(2)}s total`;
 
+  let cumulativeWidth = 0;
+
   shotPlan.forEach((shot, idx) => {
     shot.index = idx;
+    ensureShotGrade(shot);
     const card = document.createElement("div");
     card.className = "tl-shot-card" + (idx === selectedShotIdx ? " selected" : "");
-    const widthPx = Math.max(96, Math.min(240, Math.round(shot.duration * 110)));
+    const widthPx = Math.max(96, Math.min(340, Math.round(shot.duration * 110)));
     card.style.width = `${widthPx}px`;
+    cumulativeWidth += widthPx + 5;
     card.draggable = true;
 
     const shortClip = (shot.clip || "").replace(/\.(mov|mp4|m4v|mkv|avi|webm)$/i, "");
     const zoomNum = Math.round(shot.zoom !== undefined ? shot.zoom : 100);
+    const g = shot.grade || {};
+    const hasGrade =
+      g.brightness || g.contrast || g.saturation || g.temperature || g.tint || g.whites || g.blacks || g.vignette ||
+      (g.curve && g.curve !== "none") || g.fade_in > 0 || g.fade_out > 0;
+    const gradeDot = hasGrade ? " 🎨" : "";
     const tagBadge = shot.tag
-      ? `<span class="tl-shot-tag">${shot.tag}</span>`
-      : `<span class="tl-shot-tag">${zoomNum}%</span>`;
+      ? `<span class="tl-shot-tag">${shot.tag}${gradeDot}</span>`
+      : `<span class="tl-shot-tag">${zoomNum}%${gradeDot}</span>`;
 
     if (shot.clip && !shot.clip.includes("(awaiting clips)")) {
       if (!localFolderPath && clipFiles.length) {
@@ -808,6 +1024,7 @@ function renderTimelineTrack() {
     }
 
     card.innerHTML = `
+      <div class="tl-trim-handle left" title="Drag left/right to trim In-Point">[</div>
       <div class="tl-shot-top">
         <span class="tl-shot-num">#${String(idx + 1).padStart(2, "0")}</span>
         ${tagBadge}
@@ -819,11 +1036,40 @@ function renderTimelineTrack() {
           <span>${Number(shot.duration || 0).toFixed(2)}s</span>
         </div>
       </div>
+      <div class="tl-trim-handle right" title="Drag left/right to trim Out-Point / Duration">]</div>
     `;
+
+    const leftHandle = card.querySelector(".tl-trim-handle.left");
+    const rightHandle = card.querySelector(".tl-trim-handle.right");
+    const metaEl = card.querySelector(".tl-shot-meta");
+
+    [leftHandle, rightHandle].forEach((handleEl, hIdx) => {
+      if (!handleEl) return;
+      handleEl.addEventListener("mousedown", (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        selectedShotIdx = idx;
+        populateInspector();
+        activeEdgeTrim = {
+          idx,
+          side: hIdx === 0 ? "left" : "right",
+          startX: e.clientX,
+          origIn: Number(shot.in_point || 0),
+          origDur: Number(shot.duration || 1.0),
+          clipDur: Number(shot.clip_duration || 20.0),
+          cardEl: card,
+          metaEl,
+        };
+      });
+    });
 
     card.addEventListener("click", () => selectShot(idx));
 
     card.addEventListener("dragstart", (e) => {
+      if (activeEdgeTrim) {
+        e.preventDefault();
+        return;
+      }
       e.dataTransfer.setData("text/plain", String(idx));
     });
     card.addEventListener("dragover", (e) => {
@@ -850,8 +1096,73 @@ function renderTimelineTrack() {
     tlShotsStrip.appendChild(card);
   });
 
+  renderTimecodeRuler(cumulativeWidth, totalDur);
+
   btnMoveLeft.disabled = selectedShotIdx <= 0;
   btnMoveRight.disabled = selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length - 1;
+}
+
+// ---------- A1 Audio Track Controls (Add Audio, Trim Start Offset, Volume) ----------
+if (btnAddAudio && inputCustomAudio) {
+  btnAddAudio.addEventListener("click", () => inputCustomAudio.click());
+  inputCustomAudio.addEventListener("change", () => {
+    const f = inputCustomAudio.files[0];
+    if (!f) return;
+    customAudioFile = f;
+    clearCustomAudioFlag = false;
+    audioStartOffset = 0.0;
+    if (tlAudioTitle) tlAudioTitle.textContent = `🎵 Custom Audio: ${f.name}`;
+    if (tlAudioOffsetLabel) tlAudioOffsetLabel.textContent = `Start: 0.0s`;
+    if (btnClearAudio) btnClearAudio.classList.remove("hidden");
+    const overlayCb = $("overlay-audio");
+    if (overlayCb) overlayCb.checked = true;
+    markTimelineDirty();
+  });
+}
+
+if (btnClearAudio) {
+  btnClearAudio.addEventListener("click", () => {
+    customAudioFile = null;
+    clearCustomAudioFlag = true;
+    audioStartOffset = 0.0;
+    if (inputCustomAudio) inputCustomAudio.value = "";
+    if (tlAudioTitle) tlAudioTitle.textContent = "🔊 Reference Audio Track (Synced)";
+    if (tlAudioOffsetLabel) tlAudioOffsetLabel.textContent = "Start: 0.0s";
+    btnClearAudio.classList.add("hidden");
+    markTimelineDirty();
+  });
+}
+
+if (tlAudioVol) {
+  tlAudioVol.addEventListener("input", () => {
+    audioVolumePct = parseInt(tlAudioVol.value, 10) || 100;
+    if (tlAudioVolLabel) tlAudioVolLabel.textContent = `${audioVolumePct}%`;
+    markTimelineDirty();
+  });
+}
+
+let isTrimmingAudio = false;
+let audioTrimStartX = 0;
+let audioOrigOffset = 0;
+
+if (tlAudioTrimLeft) {
+  tlAudioTrimLeft.addEventListener("mousedown", (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    isTrimmingAudio = true;
+    audioTrimStartX = e.clientX;
+    audioOrigOffset = audioStartOffset;
+  });
+  window.addEventListener("mousemove", (e) => {
+    if (!isTrimmingAudio) return;
+    const dx = e.clientX - audioTrimStartX;
+    audioStartOffset = Math.max(0, Number((audioOrigOffset + dx / 60.0).toFixed(1)));
+    if (tlAudioOffsetLabel) tlAudioOffsetLabel.textContent = `Start: ${audioStartOffset.toFixed(1)}s`;
+    markTimelineDirty();
+  });
+  window.addEventListener("mouseup", () => {
+    isTrimmingAudio = false;
+  });
 }
 
 function markTimelineDirty() {
@@ -868,6 +1179,37 @@ function selectShot(idx) {
   previewSelectedShotInMonitor(true);
 }
 
+function populateGradingControls(shot) {
+  const g = ensureShotGrade(shot);
+  if (slGradeBrightness) slGradeBrightness.value = g.brightness;
+  if (valGradeBrightness) valGradeBrightness.textContent = g.brightness > 0 ? `+${g.brightness}` : String(g.brightness);
+
+  if (slGradeContrast) slGradeContrast.value = g.contrast;
+  if (valGradeContrast) valGradeContrast.textContent = g.contrast > 0 ? `+${g.contrast}` : String(g.contrast);
+
+  if (slGradeSaturation) slGradeSaturation.value = g.saturation;
+  if (valGradeSaturation) valGradeSaturation.textContent = g.saturation > 0 ? `+${g.saturation}` : String(g.saturation);
+
+  if (slGradeTemp) slGradeTemp.value = g.temperature;
+  if (valGradeTemp) valGradeTemp.textContent = g.temperature > 0 ? `+${g.temperature}` : String(g.temperature);
+
+  if (slGradeTint) slGradeTint.value = g.tint;
+  if (valGradeTint) valGradeTint.textContent = g.tint > 0 ? `+${g.tint}` : String(g.tint);
+
+  if (slGradeWhites) slGradeWhites.value = g.whites;
+  if (valGradeWhites) valGradeWhites.textContent = g.whites > 0 ? `+${g.whites}` : String(g.whites);
+
+  if (slGradeBlacks) slGradeBlacks.value = g.blacks;
+  if (valGradeBlacks) valGradeBlacks.textContent = g.blacks > 0 ? `+${g.blacks}` : String(g.blacks);
+
+  if (slGradeVignette) slGradeVignette.value = g.vignette;
+  if (valGradeVignette) valGradeVignette.textContent = `${g.vignette}%`;
+
+  if (selGradeCurve) selGradeCurve.value = g.curve || "none";
+  if (numGradeFadeIn) numGradeFadeIn.value = Number(g.fade_in || 0).toFixed(1);
+  if (numGradeFadeOut) numGradeFadeOut.value = Number(g.fade_out || 0).toFixed(1);
+}
+
 function populateInspector() {
   if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) {
     inspEmpty.classList.remove("hidden");
@@ -880,6 +1222,7 @@ function populateInspector() {
   if (shot.zoom === undefined) shot.zoom = 100;
   if (shot.pan_x === undefined) shot.pan_x = 0;
   if (shot.pan_y === undefined) shot.pan_y = 0;
+  ensureShotGrade(shot);
 
   inspEmpty.classList.add("hidden");
   inspControls.classList.remove("hidden");
@@ -902,7 +1245,116 @@ function populateInspector() {
   inspInpoint.value = Number(shot.in_point || 0).toFixed(2);
   inspDuration.value = Number(shot.duration || 1.0).toFixed(2);
 
+  populateGradingControls(shot);
   applyReframeTransformToPreview();
+}
+
+// Wire Grading Sliders & Controls
+function wireGradeSlider(sliderEl, valEl, key, isPct = false) {
+  if (!sliderEl) return;
+  sliderEl.addEventListener("input", () => {
+    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+    const v = parseInt(sliderEl.value, 10) || 0;
+    const g = ensureShotGrade(shotPlan[selectedShotIdx]);
+    g[key] = v;
+    if (valEl) {
+      valEl.textContent = isPct ? `${v}%` : v > 0 ? `+${v}` : String(v);
+    }
+    showMonitorTab("source");
+    applyGradeFilterToPreview();
+    markTimelineDirty();
+  });
+  sliderEl.addEventListener("change", () => {
+    renderTimelineTrack();
+  });
+}
+
+wireGradeSlider(slGradeBrightness, valGradeBrightness, "brightness");
+wireGradeSlider(slGradeContrast, valGradeContrast, "contrast");
+wireGradeSlider(slGradeSaturation, valGradeSaturation, "saturation");
+wireGradeSlider(slGradeTemp, valGradeTemp, "temperature");
+wireGradeSlider(slGradeTint, valGradeTint, "tint");
+wireGradeSlider(slGradeWhites, valGradeWhites, "whites");
+wireGradeSlider(slGradeBlacks, valGradeBlacks, "blacks");
+wireGradeSlider(slGradeVignette, valGradeVignette, "vignette", true);
+
+if (selGradeCurve) {
+  selGradeCurve.addEventListener("change", () => {
+    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+    const g = ensureShotGrade(shotPlan[selectedShotIdx]);
+    g.curve = selGradeCurve.value || "none";
+    showMonitorTab("source");
+    applyGradeFilterToPreview();
+    renderTimelineTrack();
+    markTimelineDirty();
+  });
+}
+
+if (numGradeFadeIn) {
+  numGradeFadeIn.addEventListener("change", () => {
+    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+    const g = ensureShotGrade(shotPlan[selectedShotIdx]);
+    g.fade_in = Math.max(0, parseFloat(numGradeFadeIn.value) || 0);
+    renderTimelineTrack();
+    markTimelineDirty();
+  });
+}
+
+if (numGradeFadeOut) {
+  numGradeFadeOut.addEventListener("change", () => {
+    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+    const g = ensureShotGrade(shotPlan[selectedShotIdx]);
+    g.fade_out = Math.max(0, parseFloat(numGradeFadeOut.value) || 0);
+    renderTimelineTrack();
+    markTimelineDirty();
+  });
+}
+
+if (inputLut) {
+  inputLut.addEventListener("change", () => {
+    const f = inputLut.files[0];
+    if (!f) return;
+    lutFile = f;
+    clearLutFlag = false;
+    if (fnLut) fnLut.textContent = `LUT: ${f.name}`;
+    if (btnClearLut) btnClearLut.classList.remove("hidden");
+    markTimelineDirty();
+  });
+}
+
+if (btnClearLut) {
+  btnClearLut.addEventListener("click", () => {
+    lutFile = null;
+    clearLutFlag = true;
+    if (inputLut) inputLut.value = "";
+    if (fnLut) fnLut.textContent = "";
+    btnClearLut.classList.add("hidden");
+    markTimelineDirty();
+  });
+}
+
+if (btnResetGrade) {
+  btnResetGrade.addEventListener("click", () => {
+    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+    shotPlan[selectedShotIdx].grade = defaultGrade();
+    populateGradingControls(shotPlan[selectedShotIdx]);
+    applyGradeFilterToPreview();
+    renderTimelineTrack();
+    markTimelineDirty();
+  });
+}
+
+if (btnGradeAll) {
+  btnGradeAll.addEventListener("click", () => {
+    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+    const srcGrade = JSON.parse(JSON.stringify(ensureShotGrade(shotPlan[selectedShotIdx])));
+    shotPlan.forEach((s) => {
+      s.grade = JSON.parse(JSON.stringify(srcGrade));
+    });
+    renderTimelineTrack();
+    markTimelineDirty();
+    setStatus(buildStatus, "✨ Copied current shot's grading & fades to all shots! Click Apply to render.", "success");
+  });
 }
 
 if (inspClipSelect) {
@@ -1031,7 +1483,7 @@ async function runBuild(useCustomShotPlan = false) {
   btnBuild.disabled = true;
   if (btnApplyTimeline) btnApplyTimeline.disabled = true;
   btnRebuildOrder.classList.add("hidden");
-  setStatus(buildStatus, `Cutting & stitching (${projectWidth}×${projectHeight} @ ${projectFps}fps)…`, "working");
+  setStatus(buildStatus, `Cutting, grading & stitching (${projectWidth}×${projectHeight} @ ${projectFps}fps)…`, "working");
 
   const fd = new FormData();
   fd.append("job_id", jobId);
@@ -1042,6 +1494,20 @@ async function runBuild(useCustomShotPlan = false) {
   fd.append("overlay_audio", $("overlay-audio").checked ? "true" : "false");
   fd.append("smart_match", smartMatchCheckbox.checked && contentTagged ? "true" : "false");
   fd.append("crop_mode", "center");
+  fd.append("audio_in", String(audioStartOffset || 0));
+  fd.append("audio_volume", String((audioVolumePct / 100.0).toFixed(2)));
+
+  if (lutFile) {
+    fd.append("lut_file", lutFile);
+  } else if (clearLutFlag) {
+    fd.append("clear_lut", "true");
+  }
+
+  if (customAudioFile) {
+    fd.append("custom_audio", customAudioFile);
+  } else if (clearCustomAudioFlag) {
+    fd.append("clear_custom_audio", "true");
+  }
 
   if (useCustomShotPlan && shotPlan && shotPlan.length) {
     fd.append("shot_plan", JSON.stringify(shotPlan));
@@ -1507,6 +1973,26 @@ function hydrateEditorFromJobState(data) {
 
   contentTagged = Boolean(data.tagged);
 
+  lutFile = null;
+  clearLutFlag = false;
+  if (data.lut_name) {
+    if (fnLut) fnLut.textContent = `LUT: ${data.lut_name}`;
+    if (btnClearLut) btnClearLut.classList.remove("hidden");
+  } else {
+    if (fnLut) fnLut.textContent = "";
+    if (btnClearLut) btnClearLut.classList.add("hidden");
+  }
+
+  customAudioFile = null;
+  clearCustomAudioFlag = false;
+  if (data.custom_audio_name) {
+    if (tlAudioTitle) tlAudioTitle.textContent = `🎵 Custom Audio: ${data.custom_audio_name}`;
+    if (btnClearAudio) btnClearAudio.classList.remove("hidden");
+  } else {
+    if (tlAudioTitle) tlAudioTitle.textContent = "🔊 Reference Audio Track (Synced)";
+    if (btnClearAudio) btnClearAudio.classList.add("hidden");
+  }
+
   if (data.shot_plan && data.shot_plan.length) {
     shotPlan = data.shot_plan;
     selectedShotIdx = 0;
@@ -1657,24 +2143,44 @@ if (btnRelinkFolder) {
   });
 }
 
-// ---------- File Menu (New Job, Open Job, Save Job, Close Job, Close Swift Reel) ----------
-const fileMenuWrap = $("file-menu-wrap");
-const btnFileMenu = $("btn-file-menu");
-const menuNewJob = $("menu-new-job");
-const menuOpenJob = $("menu-open-job");
-const menuSaveJob = $("menu-save-job");
-const menuCloseJob = $("menu-close-job");
-const menuQuitApp = $("menu-quit-app");
+// ---------- Full In-App macOS Menu Bar (File, Edit, Clip, Timeline, View, Help) ----------
+const macMenubar = $("mac-menubar");
 
-if (btnFileMenu && fileMenuWrap) {
-  btnFileMenu.addEventListener("click", (e) => {
-    e.stopPropagation();
-    fileMenuWrap.classList.toggle("open");
+function closeAllMenus() {
+  if (!macMenubar) return;
+  Array.from(macMenubar.querySelectorAll(".file-menu-wrap.open")).forEach((el) => el.classList.remove("open"));
+}
+
+if (macMenubar) {
+  const wraps = Array.from(macMenubar.querySelectorAll(".file-menu-wrap"));
+  wraps.forEach((wrap) => {
+    const btn = wrap.querySelector(".file-menu-btn");
+    if (!btn) return;
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const wasOpen = wrap.classList.contains("open");
+      closeAllMenus();
+      if (!wasOpen) wrap.classList.add("open");
+    });
+    btn.addEventListener("mouseenter", () => {
+      const anyOpen = wraps.some((w) => w.classList.contains("open"));
+      if (anyOpen && !wrap.classList.contains("open")) {
+        closeAllMenus();
+        wrap.classList.add("open");
+      }
+    });
   });
-  window.addEventListener("click", () => {
-    fileMenuWrap.classList.remove("open");
+
+  macMenubar.addEventListener("click", (e) => {
+    if (e.target.closest(".file-menu-item")) {
+      closeAllMenus();
+    }
   });
 }
+
+window.addEventListener("click", () => {
+  closeAllMenus();
+});
 
 function closeCurrentJob() {
   jobId = null;
@@ -1689,12 +2195,22 @@ function closeCurrentJob() {
   selectedShotIdx = -1;
   timelineDirty = false;
   contentTagged = false;
+  lutFile = null;
+  clearLutFlag = false;
+  customAudioFile = null;
+  clearCustomAudioFlag = false;
+  audioStartOffset = 0.0;
 
   if ($("job-id-display")) $("job-id-display").textContent = "—";
   if (topJobInput) topJobInput.value = "—";
   if ($("job-name")) $("job-name").value = "";
   if (fnReference) fnReference.textContent = "";
   if (fnClips) fnClips.textContent = "";
+  if (fnLut) fnLut.textContent = "";
+  if (btnClearLut) btnClearLut.classList.add("hidden");
+  if (tlAudioTitle) tlAudioTitle.textContent = "🔊 Reference Audio Track (Synced)";
+  if (tlAudioOffsetLabel) tlAudioOffsetLabel.textContent = "Start: 0.0s";
+  if (btnClearAudio) btnClearAudio.classList.add("hidden");
   if (clipList) clipList.innerHTML = "";
   if (rhythmResult) rhythmResult.classList.add("hidden");
   if (analyzeStatus) analyzeStatus.classList.add("hidden");
@@ -1718,13 +2234,15 @@ function closeCurrentJob() {
     sourcePreview.pause();
     sourcePreview.removeAttribute("src");
     sourcePreview.removeAttribute("data-clip");
+    sourcePreview.style.filter = "none";
   }
+  if (vignettePreviewLayer) vignettePreviewLayer.style.opacity = "0";
   if (buildResult) buildResult.classList.add("hidden");
   if (sourcePreviewWrap) sourcePreviewWrap.classList.add("hidden");
   if (monitorEmpty) monitorEmpty.classList.remove("hidden");
 
   if (tlShotsStrip) {
-    tlShotsStrip.innerHTML = `<div style="color:var(--text-faint); font-size:11.5px; display:flex; align-items:center; padding-left:8px;">Timeline tracks will populate here as soon as you analyze a reference video or build a reel.</div>`;
+    tlShotsStrip.innerHTML = `<div style="color:var(--text-dim); font-size:11.5px; display:flex; align-items:center; padding-left:8px;">Timeline tracks will populate here as soon as you analyze a reference video or build a reel.</div>`;
   }
   if (tlSummary) tlSummary.textContent = "0 shots · 0.00s";
   populateInspector();
@@ -1743,6 +2261,35 @@ async function quitSwiftReel() {
   window.close();
 }
 
+function deleteSelectedShot() {
+  if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+  if (shotPlan.length <= 1) {
+    alert("Timeline must keep at least 1 shot.");
+    return;
+  }
+  shotPlan.splice(selectedShotIdx, 1);
+  if (selectedShotIdx >= shotPlan.length) selectedShotIdx = shotPlan.length - 1;
+  markTimelineDirty();
+  renderTimelineTrack();
+  populateInspector();
+}
+
+function applyReframeToAllShots() {
+  if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+  const cur = shotPlan[selectedShotIdx];
+  const z = cur.zoom !== undefined ? cur.zoom : 100;
+  const px = cur.pan_x || 0;
+  const py = cur.pan_y || 0;
+  shotPlan.forEach((s) => {
+    s.zoom = z;
+    s.pan_x = px;
+    s.pan_y = py;
+  });
+  renderTimelineTrack();
+  markTimelineDirty();
+  setStatus(buildStatus, `✨ Applied ${Math.round(z)}% reframe & position to all shots! Click Apply to render.`, "success");
+}
+
 window.swiftReelFileAction = function (action) {
   if (action === "new") startNewJob();
   else if (action === "open" && inputOpenProject) inputOpenProject.click();
@@ -1751,14 +2298,90 @@ window.swiftReelFileAction = function (action) {
   else if (action === "quit") quitSwiftReel();
 };
 
-if (menuNewJob) menuNewJob.addEventListener("click", () => startNewJob());
-if (menuOpenJob) menuOpenJob.addEventListener("click", () => inputOpenProject && inputOpenProject.click());
-if (menuSaveJob) menuSaveJob.addEventListener("click", () => btnSaveProject && btnSaveProject.click());
-if (menuCloseJob) menuCloseJob.addEventListener("click", () => closeCurrentJob());
-if (menuQuitApp) menuQuitApp.addEventListener("click", () => quitSwiftReel());
+function bindMenuItem(id, fn) {
+  const el = $(id);
+  if (el) el.addEventListener("click", fn);
+}
 
-// Keyboard shortcuts (Cmd+N, Cmd+O, Cmd+S, Cmd+W)
+// FILE menu bindings
+bindMenuItem("menu-new-job", () => startNewJob());
+bindMenuItem("menu-open-job", () => inputOpenProject && inputOpenProject.click());
+bindMenuItem("menu-save-job", () => btnSaveProject && btnSaveProject.click());
+bindMenuItem("menu-relink-media", () => btnRelinkFolder && btnRelinkFolder.click());
+bindMenuItem("menu-export-video", () => btnExport && !btnExport.disabled && btnExport.click());
+bindMenuItem("menu-export-fcpxml", () => $("direct-fcpxml-link") && $("direct-fcpxml-link").click());
+bindMenuItem("menu-export-edl", () => $("direct-edl-link") && $("direct-edl-link").click());
+bindMenuItem("menu-close-job", () => closeCurrentJob());
+bindMenuItem("menu-quit-app", () => quitSwiftReel());
+
+// EDIT menu bindings
+bindMenuItem("menu-rename-job", () => {
+  if (topJobInput) {
+    topJobInput.focus();
+    topJobInput.select();
+  }
+});
+bindMenuItem("menu-select-all-clips", () => {
+  if (shotPlan.length > 0) selectShot(0);
+});
+bindMenuItem("menu-deselect-all-clips", () => {
+  selectedShotIdx = -1;
+  renderTimelineTrack();
+  populateInspector();
+});
+bindMenuItem("menu-edit-settings", () => openSettingsModal());
+
+// CLIP menu bindings
+bindMenuItem("menu-clip-trim-tab", () => switchInspectorSubtab("trim"));
+bindMenuItem("menu-clip-color-tab", () => switchInspectorSubtab("color"));
+bindMenuItem("menu-clip-reframe-all", () => applyReframeToAllShots());
+bindMenuItem("menu-clip-grade-all", () => btnGradeAll && btnGradeAll.click());
+bindMenuItem("menu-clip-reset-reframe", () => btnResetReframe && btnResetReframe.click());
+bindMenuItem("menu-clip-reset-grade", () => btnResetGrade && btnResetGrade.click());
+bindMenuItem("menu-clip-load-lut", () => {
+  switchInspectorSubtab("color");
+  if (inputLut) inputLut.click();
+});
+
+// TIMELINE menu bindings
+bindMenuItem("menu-tl-rebuild", () => runBuild(true));
+bindMenuItem("menu-tl-add-audio", () => btnAddAudio && btnAddAudio.click());
+bindMenuItem("menu-tl-clear-audio", () => btnClearAudio && btnClearAudio.click());
+bindMenuItem("menu-tl-move-left", () => btnMoveLeft && !btnMoveLeft.disabled && btnMoveLeft.click());
+bindMenuItem("menu-tl-move-right", () => btnMoveRight && !btnMoveRight.disabled && btnMoveRight.click());
+bindMenuItem("menu-tl-delete-shot", () => deleteSelectedShot());
+
+// VIEW menu bindings
+bindMenuItem("menu-view-beatsync", () => switchMainTab("beatsync"));
+bindMenuItem("menu-view-cleaner", () => switchMainTab("cleaner"));
+bindMenuItem("menu-view-sorter", () => switchMainTab("sorter"));
+bindMenuItem("menu-view-history", () => switchMainTab("history"));
+bindMenuItem("menu-view-grid", () => {
+  const btn = mediaViewToggle && mediaViewToggle.querySelector('[data-view="thumb"]');
+  if (btn) btn.click();
+});
+bindMenuItem("menu-view-list", () => {
+  const btn = mediaViewToggle && mediaViewToggle.querySelector('[data-view="list"]');
+  if (btn) btn.click();
+});
+
+// HELP menu bindings
+bindMenuItem("menu-help-resolve", () => {
+  alert(
+    "DaVinci Resolve Import Guide:\n\n1. In Swift Reel, click 'FCPXML ↓' in Step 03 (Export & Resolve).\n2. In DaVinci Resolve, go to File → Import → Timeline… and choose timeline.fcpxml.\n3. All clips link directly to your footage folder with exact filenames and timecodes!"
+  );
+});
+bindMenuItem("menu-help-about", () => {
+  alert(
+    "Swift Reel Studio NLE v2.5\n\n• Beat-Synced Reference Cut Detector\n• Premiere-Style Multi-Track Timeline with Edge Trimming [ ]\n• Interactive Monitor Drag-to-Reframe & Resize\n• Full Color Grading, Levels, Curves, 3D LUT (.cube) & Fades\n• DaVinci Resolve FCPXML & CMX 3600 EDL Export"
+  );
+});
+
+// Keyboard shortcuts
 window.addEventListener("keydown", (e) => {
+  const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : "";
+  const isTyping = activeTag === "input" || activeTag === "textarea" || activeTag === "select";
+
   if (e.metaKey || e.ctrlKey) {
     const k = e.key.toLowerCase();
     if (k === "n") {
@@ -1773,6 +2396,38 @@ window.addEventListener("keydown", (e) => {
     } else if (k === "w") {
       e.preventDefault();
       closeCurrentJob();
+    } else if (k === ",") {
+      e.preventDefault();
+      openSettingsModal();
+    } else if (k === "b") {
+      e.preventDefault();
+      runBuild(true);
+    } else if (k === "1") {
+      e.preventDefault();
+      switchMainTab("beatsync");
+    } else if (k === "2") {
+      e.preventDefault();
+      switchMainTab("cleaner");
+    } else if (k === "3") {
+      e.preventDefault();
+      switchMainTab("sorter");
+    } else if (k === "4") {
+      e.preventDefault();
+      switchMainTab("history");
+    }
+  } else if (e.altKey && !isTyping) {
+    if (e.key === "1") {
+      e.preventDefault();
+      switchInspectorSubtab("trim");
+    } else if (e.key === "2") {
+      e.preventDefault();
+      switchInspectorSubtab("color");
+    } else if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      if (btnMoveLeft && !btnMoveLeft.disabled) btnMoveLeft.click();
+    } else if (e.key === "ArrowRight") {
+      e.preventDefault();
+      if (btnMoveRight && !btnMoveRight.disabled) btnMoveRight.click();
     }
   }
 });

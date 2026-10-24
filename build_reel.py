@@ -68,6 +68,76 @@ def make_reel_id(clip_name: str, index: int) -> str:
     return base
 
 
+def build_grade_filter(grade: dict, shot_dur: float, lut_path: str = None) -> str:
+    """Build FFmpeg video filter chain for color grading, LUT, levels, curves, vignette & fades."""
+    if not grade and not lut_path:
+        return ""
+    grade = grade or {}
+    parts = []
+
+    # 1. 3D LUT (.cube / .3dl)
+    if lut_path and Path(lut_path).exists() and grade.get("use_lut", True):
+        esc_lut = str(Path(lut_path).resolve()).replace("\\", "/").replace(":", r"\:")
+        parts.append(f"lut3d=file='{esc_lut}'")
+
+    # 2. Brightness (-50..50), Contrast (-50..50), Saturation (-100..100)
+    b = float(grade.get("brightness", 0.0)) / 100.0
+    c = 1.0 + (float(grade.get("contrast", 0.0)) / 50.0)
+    s = max(0.0, 1.0 + (float(grade.get("saturation", 0.0)) / 100.0))
+    if abs(b) > 0.005 or abs(c - 1.0) > 0.005 or abs(s - 1.0) > 0.005:
+        parts.append(f"eq=brightness={b:.3f}:contrast={c:.3f}:saturation={s:.3f}")
+
+    # 3. Temperature (-100..100) & Tint (-100..100) via colorbalance
+    temp = float(grade.get("temperature", 0.0)) / 200.0
+    tint = -float(grade.get("tint", 0.0)) / 200.0
+    if abs(temp) > 0.005 or abs(tint) > 0.005:
+        parts.append(
+            f"colorbalance=rm={temp:.3f}:gm={tint:.3f}:bm={-temp:.3f}:"
+            f"rh={temp*0.6:.3f}:gh={tint*0.6:.3f}:bh={-temp*0.6:.3f}"
+        )
+
+    # 4. Levels: Whites (-50..50) & Blacks (-50..50)
+    whites = float(grade.get("whites", 0.0))
+    blacks = float(grade.get("blacks", 0.0))
+    if abs(whites) > 0.5 or abs(blacks) > 0.5:
+        imin = max(0.0, min(0.35, -blacks / 150.0)) if blacks < 0 else 0.0
+        omin = max(0.0, min(0.35, blacks / 150.0)) if blacks > 0 else 0.0
+        imax = max(0.65, min(1.0, 1.0 - (whites / 150.0))) if whites > 0 else 1.0
+        omax = max(0.65, min(1.0, 1.0 + (whites / 150.0))) if whites < 0 else 1.0
+        parts.append(
+            f"colorlevels=rimin={imin:.3f}:gimin={imin:.3f}:bimin={imin:.3f}:"
+            f"rimax={imax:.3f}:gimax={imax:.3f}:bimax={imax:.3f}:"
+            f"romin={omin:.3f}:gomin={omin:.3f}:bomin={omin:.3f}:"
+            f"romax={omax:.3f}:gomax={omax:.3f}:bomax={omax:.3f}"
+        )
+
+    # 5. Tone Curves preset
+    curve = (grade.get("curve") or "none").strip()
+    valid_curves = {
+        "lighter", "darker", "increase_contrast", "medium_contrast",
+        "strong_contrast", "linear_contrast", "vintage", "cross_process"
+    }
+    if curve in valid_curves:
+        parts.append(f"curves=preset={curve}")
+
+    # 6. Vignette (0..100)
+    vig = float(grade.get("vignette", 0.0))
+    if vig > 1.0:
+        angle = min(1.0, vig / 100.0) * 0.785
+        parts.append(f"vignette=angle={angle:.4f}")
+
+    # 7. Fade In & Fade Out (seconds)
+    fi = float(grade.get("fade_in", 0.0))
+    fo = float(grade.get("fade_out", 0.0))
+    if fi > 0.02:
+        parts.append(f"fade=t=in:st=0:d={min(fi, shot_dur):.3f}")
+    if fo > 0.02:
+        st_out = max(0.0, shot_dur - fo)
+        parts.append(f"fade=t=out:st={st_out:.3f}:d={min(fo, shot_dur):.3f}")
+
+    return ",".join(parts)
+
+
 def build(
     rhythm_path: str,
     clips_dir: str,
@@ -83,6 +153,10 @@ def build(
     reference_path: str = None,
     shot_plan: list = None,
     crop_mode: str = "center",
+    lut_path: str = None,
+    custom_audio_path: str = None,
+    audio_in: float = 0.0,
+    audio_volume: float = 1.0,
 ):
     rhythm = json.loads(Path(rhythm_path).read_text())
     shots = rhythm["shots"]
@@ -183,6 +257,7 @@ def build(
             szoom = float(sp.get("zoom", 100.0))
             span_x = float(sp.get("pan_x", 0.0))
             span_y = float(sp.get("pan_y", 0.0))
+            sgrade = sp.get("grade") or {}
             stag = sp.get("tag", shots[idx % len(shots)].get("tag") if idx < len(shots) else None)
             active_shots.append({
                 "index": idx,
@@ -193,6 +268,7 @@ def build(
                 "zoom": szoom,
                 "pan_x": span_x,
                 "pan_y": span_y,
+                "grade": sgrade,
                 "tag": stag,
             })
     else:
@@ -272,6 +348,7 @@ def build(
             "zoom": round(szoom, 1),
             "pan_x": round(span_x, 2),
             "pan_y": round(span_y, 2),
+            "grade": item.get("grade") or {},
             "tag": item.get("tag"),
         })
 
@@ -296,6 +373,10 @@ def build(
             )
         else:
             vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1,fps={fps}"
+
+        grade_vf = build_grade_filter(item.get("grade"), duration, lut_path=lut_path)
+        if grade_vf:
+            vf += f",{grade_vf}"
 
         if freeze_pad > 0:
             vf += f",tpad=stop_mode=clone:stop_duration={freeze_pad:.3f}"
@@ -360,6 +441,7 @@ def build(
             "zoom": s.get("zoom", 100.0),
             "pan_x": s.get("pan_x", 0.0),
             "pan_y": s.get("pan_y", 0.0),
+            "grade": s.get("grade") or {},
             "tag": s["tag"],
         }
         for s in shot_log
@@ -377,18 +459,24 @@ def build(
         check=True,
     )
 
-    if overlay_audio and reference_path:
+    # Audio Track Mixing (either custom audio track or reference audio track)
+    audio_source = custom_audio_path if (custom_audio_path and Path(custom_audio_path).exists()) else (reference_path if overlay_audio else None)
+    if audio_source and Path(audio_source).exists():
         mixed_out = Path(output).with_name("mixed_out.mp4")
+        vol = max(0.0, min(3.0, float(audio_volume)))
+        a_in = max(0.0, float(audio_in))
         if keep_audio:
             mix_cmd = [
                 FFMPEG,
                 "-y",
                 "-i",
                 str(output),
+                "-ss",
+                str(a_in),
                 "-i",
-                str(reference_path),
+                str(audio_source),
                 "-filter_complex",
-                "[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=2[a]",
+                f"[1:a]volume={vol:.2f}[a1];[0:a][a1]amix=inputs=2:duration=first:dropout_transition=2[a]",
                 "-map",
                 "0:v",
                 "-map",
@@ -407,8 +495,12 @@ def build(
                 "-y",
                 "-i",
                 str(output),
+                "-ss",
+                str(a_in),
                 "-i",
-                str(reference_path),
+                str(audio_source),
+                "-filter_complex",
+                f"[1:a]volume={vol:.2f}[a]",
                 "-c:v",
                 "copy",
                 "-c:a",
@@ -416,7 +508,7 @@ def build(
                 "-map",
                 "0:v:0",
                 "-map",
-                "1:a:0",
+                "[a]",
                 "-shortest",
                 "-loglevel",
                 "error",

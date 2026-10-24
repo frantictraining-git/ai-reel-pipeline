@@ -6,7 +6,7 @@
 <title>Swift Reel</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=30">
+<link rel="stylesheet" href="/static/style.css?v=32">
 </head>
 <body class="nle-body">
 
@@ -17,31 +17,193 @@
       <div class="wordmark">SWIFT<span>REEL</span></div>
     </div>
 
-    <!-- FILE DROPDOWN MENU -->
-    <div class="file-menu-wrap" id="file-menu-wrap">
-      <button type="button" class="file-menu-btn" id="btn-file-menu">File ▾</button>
-      <div class="file-dropdown" id="file-dropdown">
-        <button type="button" class="file-menu-item" id="menu-new-job">
-          <span>New Job</span>
-          <span class="shortcut">⌘N</span>
-        </button>
-        <button type="button" class="file-menu-item" id="menu-open-job">
-          <span>Open Job…</span>
-          <span class="shortcut">⌘O</span>
-        </button>
-        <button type="button" class="file-menu-item" id="menu-save-job">
-          <span>Save Job…</span>
-          <span class="shortcut">⌘S</span>
-        </button>
-        <button type="button" class="file-menu-item" id="menu-close-job">
-          <span>Close Job</span>
-          <span class="shortcut">⌘W</span>
-        </button>
-        <div class="file-menu-divider"></div>
-        <button type="button" class="file-menu-item" id="menu-quit-app">
-          <span>Close Swift Reel</span>
-          <span class="shortcut">⌘Q</span>
-        </button>
+    <!-- FULL MAC-STYLE IN-APP MENU BAR -->
+    <div class="mac-menubar" id="mac-menubar">
+      <!-- FILE MENU -->
+      <div class="file-menu-wrap" data-menu="file">
+        <button type="button" class="file-menu-btn">File ▾</button>
+        <div class="file-dropdown">
+          <button type="button" class="file-menu-item" id="menu-new-job">
+            <span>New Job</span>
+            <span class="shortcut">⌘N</span>
+          </button>
+          <button type="button" class="file-menu-item" id="menu-open-job">
+            <span>Open Job…</span>
+            <span class="shortcut">⌘O</span>
+          </button>
+          <button type="button" class="file-menu-item" id="menu-save-job">
+            <span>Save Job…</span>
+            <span class="shortcut">⌘S</span>
+          </button>
+          <button type="button" class="file-menu-item" id="menu-relink-media">
+            <span>Relink Footage Folder…</span>
+            <span class="shortcut">⇧⌘R</span>
+          </button>
+          <div class="file-menu-divider"></div>
+          <button type="button" class="file-menu-item" id="menu-export-video">
+            <span>Export Master Video…</span>
+            <span class="shortcut">⌘E</span>
+          </button>
+          <button type="button" class="file-menu-item" id="menu-export-fcpxml">
+            <span>Export DaVinci FCPXML…</span>
+            <span class="shortcut">⇧⌘X</span>
+          </button>
+          <button type="button" class="file-menu-item" id="menu-export-edl">
+            <span>Export CMX 3600 EDL…</span>
+            <span class="shortcut">⇧⌘D</span>
+          </button>
+          <div class="file-menu-divider"></div>
+          <button type="button" class="file-menu-item" id="menu-close-job">
+            <span>Close Job</span>
+            <span class="shortcut">⌘W</span>
+          </button>
+          <button type="button" class="file-menu-item" id="menu-quit-app">
+            <span>Close Swift Reel</span>
+            <span class="shortcut">⌘Q</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- EDIT MENU -->
+      <div class="file-menu-wrap" data-menu="edit">
+        <button type="button" class="file-menu-btn">Edit ▾</button>
+        <div class="file-dropdown">
+          <button type="button" class="file-menu-item" id="menu-rename-job">
+            <span>Rename Current Job…</span>
+            <span class="shortcut">⌘R</span>
+          </button>
+          <div class="file-menu-divider"></div>
+          <button type="button" class="file-menu-item" id="menu-select-all-clips">
+            <span>Select All Library Clips</span>
+            <span class="shortcut">⌘A</span>
+          </button>
+          <button type="button" class="file-menu-item" id="menu-deselect-all-clips">
+            <span>Deselect All Library Clips</span>
+            <span class="shortcut">⇧⌘A</span>
+          </button>
+          <div class="file-menu-divider"></div>
+          <button type="button" class="file-menu-item" id="menu-edit-settings">
+            <span>Project Video Settings…</span>
+            <span class="shortcut">⌘,</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- CLIP MENU -->
+      <div class="file-menu-wrap" data-menu="clip">
+        <button type="button" class="file-menu-btn">Clip ▾</button>
+        <div class="file-dropdown">
+          <button type="button" class="file-menu-item" id="menu-clip-trim-tab">
+            <span>✂️ Trim & Reframe Inspector</span>
+            <span class="shortcut">⌥1</span>
+          </button>
+          <button type="button" class="file-menu-item" id="menu-clip-color-tab">
+            <span>🎨 Grading Inspector</span>
+            <span class="shortcut">⌥2</span>
+          </button>
+          <div class="file-menu-divider"></div>
+          <button type="button" class="file-menu-item" id="menu-clip-reframe-all">
+            <span>Apply Reframe to All Shots</span>
+            <span class="shortcut">⇧⌘F</span>
+          </button>
+          <button type="button" class="file-menu-item" id="menu-clip-grade-all">
+            <span>Copy Color Grade to All Shots</span>
+            <span class="shortcut">⇧⌘G</span>
+          </button>
+          <div class="file-menu-divider"></div>
+          <button type="button" class="file-menu-item" id="menu-clip-reset-reframe">
+            <span>Reset Clip Reframe (100%)</span>
+            <span class="shortcut">⌥R</span>
+          </button>
+          <button type="button" class="file-menu-item" id="menu-clip-reset-grade">
+            <span>Reset Clip Color Grade</span>
+            <span class="shortcut">⌥G</span>
+          </button>
+          <button type="button" class="file-menu-item" id="menu-clip-load-lut">
+            <span>Load 3D LUT (.cube)…</span>
+            <span class="shortcut">⌘L</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- TIMELINE MENU -->
+      <div class="file-menu-wrap" data-menu="timeline">
+        <button type="button" class="file-menu-btn">Timeline ▾</button>
+        <div class="file-dropdown">
+          <button type="button" class="file-menu-item" id="menu-tl-rebuild">
+            <span>⚡ Apply Edits & Re-Render Reel</span>
+            <span class="shortcut">⌘B</span>
+          </button>
+          <div class="file-menu-divider"></div>
+          <button type="button" class="file-menu-item" id="menu-tl-add-audio">
+            <span>🎵 Add / Replace Audio Track…</span>
+            <span class="shortcut">⇧⌘M</span>
+          </button>
+          <button type="button" class="file-menu-item" id="menu-tl-clear-audio">
+            <span>Reset Audio to Reference Track</span>
+            <span class="shortcut">⌥M</span>
+          </button>
+          <div class="file-menu-divider"></div>
+          <button type="button" class="file-menu-item" id="menu-tl-move-left">
+            <span>Move Selected Shot Left</span>
+            <span class="shortcut">⌥←</span>
+          </button>
+          <button type="button" class="file-menu-item" id="menu-tl-move-right">
+            <span>Move Selected Shot Right</span>
+            <span class="shortcut">⌥→</span>
+          </button>
+          <button type="button" class="file-menu-item" id="menu-tl-delete-shot">
+            <span>Delete Selected Shot</span>
+            <span class="shortcut">⌫</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- VIEW MENU -->
+      <div class="file-menu-wrap" data-menu="view">
+        <button type="button" class="file-menu-btn">View ▾</button>
+        <div class="file-dropdown">
+          <button type="button" class="file-menu-item" id="menu-view-beatsync">
+            <span>Beat Sync Editor</span>
+            <span class="shortcut">⌘1</span>
+          </button>
+          <button type="button" class="file-menu-item" id="menu-view-cleaner">
+            <span>Speech Cleaner</span>
+            <span class="shortcut">⌘2</span>
+          </button>
+          <button type="button" class="file-menu-item" id="menu-view-sorter">
+            <span>Media Sorter</span>
+            <span class="shortcut">⌘3</span>
+          </button>
+          <button type="button" class="file-menu-item" id="menu-view-history">
+            <span>Job History</span>
+            <span class="shortcut">⌘4</span>
+          </button>
+          <div class="file-menu-divider"></div>
+          <button type="button" class="file-menu-item" id="menu-view-grid">
+            <span>Media Library: Thumb Grid</span>
+            <span class="shortcut">⌘G</span>
+          </button>
+          <button type="button" class="file-menu-item" id="menu-view-list">
+            <span>Media Library: List View</span>
+            <span class="shortcut">⌘T</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- HELP MENU -->
+      <div class="file-menu-wrap" data-menu="help">
+        <button type="button" class="file-menu-btn">Help ▾</button>
+        <div class="file-dropdown">
+          <button type="button" class="file-menu-item" id="menu-help-resolve">
+            <span>DaVinci Resolve Import Guide</span>
+            <span class="shortcut">?</span>
+          </button>
+          <button type="button" class="file-menu-item" id="menu-help-about">
+            <span>About Swift Reel NLE</span>
+            <span class="shortcut">v2.5</span>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -241,6 +403,7 @@
           <div id="source-preview-wrap" class="monitor-video-wrap hidden" style="flex-direction:column; gap:8px;">
             <div id="reframe-viewport" class="reframe-viewport" title="Drag with mouse to reposition clip">
               <video id="source-preview" playsinline loop></video>
+              <div id="vignette-preview-layer" class="vignette-preview-layer"></div>
               <div class="reframe-overlay-hint" id="reframe-overlay-hint">🖐️ Drag video to reposition · Scroll or use slider to resize</div>
             </div>
             <!-- Tactile Player Transport Bar matching the reference UI bottom player -->
@@ -253,64 +416,151 @@
         </div>
       </main>
 
-      <!-- RIGHT INSPECTOR: CLIP TRIM / RESIZE & DRAG REFRAME + EXPORT -->
+      <!-- RIGHT INSPECTOR: CLIP TRIM / REFRAME + GRADING / LUT / FADE + EXPORT -->
       <aside class="nle-right-inspector">
         <div class="dock-header">
-          <span>Inspector & Export</span>
+          <span>Inspector, Grading & Export</span>
         </div>
 
         <div class="inspector-scroll">
-          <!-- SHOT INSPECTOR (Trim / Swap Clip / Resize & Drag Reframe) -->
+          <!-- SHOT INSPECTOR (Tabbed: Trim & Reframe | Grading) -->
           <section class="dock-panel" id="shot-inspector-panel">
-            <div class="dock-panel-title">
-              <h3>✂️ Shot Trim & Reframe</h3>
-              <span class="mono" id="insp-shot-badge" style="font-size:10.5px; color:var(--accent);">No shot selected</span>
+            <div class="dock-panel-title" style="margin-bottom:8px;">
+              <h3>✂️ Shot Inspector</h3>
+              <span class="mono" id="insp-shot-badge" style="font-size:10.5px; color:var(--accent-bright);">No shot selected</span>
             </div>
 
-            <div id="insp-empty" style="font-size:11.5px; color:var(--text-faint); padding:6px 0;">
-              Click any shot card in the bottom timeline to preview it, drag the video in the monitor to reposition, or use the resize slider below.
+            <div class="insp-subtabs" id="insp-subtabs">
+              <button type="button" class="insp-subtab active" data-subtab="trim">✂️ Trim & Reframe</button>
+              <button type="button" class="insp-subtab" data-subtab="color">🎨 Grading</button>
+            </div>
+
+            <div id="insp-empty" style="font-size:11.5px; color:var(--text-dim); padding:6px 0;">
+              Click any shot card in the bottom timeline to preview it, drag its edges to trim, drag the video in the monitor to reframe, or grade its colors.
             </div>
 
             <div id="insp-controls" class="hidden">
-              <div class="inspector-field">
-                <label><span>Assigned Source Clip</span></label>
-                <div class="tactile-select-wrap">
-                  <select id="insp-clip-select"></select>
+              <!-- SUBTAB 1: TRIM & REFRAME -->
+              <div id="insp-pane-trim">
+                <div class="inspector-field">
+                  <label><span>Assigned Source Clip</span></label>
+                  <div class="tactile-select-wrap">
+                    <select id="insp-clip-select"></select>
+                  </div>
+                </div>
+
+                <div class="inspector-field">
+                  <label>
+                    <span>Trim In-Point (Start Offset)</span>
+                    <span class="mono" id="insp-inpoint-max" style="color:var(--text-dim);">max —</span>
+                  </label>
+                  <div style="display:flex; gap:6px; align-items:center;">
+                    <input type="range" id="insp-inpoint-slider" min="0" max="10" step="0.05" value="0" style="flex:1;">
+                    <input type="number" id="insp-inpoint" min="0" step="0.1" value="0.0" style="width:68px;">
+                  </div>
+                </div>
+
+                <div class="inspector-field">
+                  <label><span>Shot Duration (sec) — or drag clip edges [ ]</span></label>
+                  <input type="number" id="insp-duration" min="0.15" step="0.05" value="1.0">
+                </div>
+
+                <div class="inspector-field">
+                  <label>
+                    <span>Resize / Scale Clip</span>
+                    <span class="mono" id="insp-zoom-val" style="color:var(--accent-bright);">100%</span>
+                  </label>
+                  <div style="display:flex; gap:6px; align-items:center;">
+                    <input type="range" id="insp-zoom-slider" min="50" max="300" step="1" value="100" style="flex:1;">
+                    <button type="button" id="btn-reset-reframe" class="btn btn-secondary btn-sm" title="Reset size to 100% and center position">⟲ Reset</button>
+                  </div>
+                  <div class="mono" id="insp-pan-readout" style="font-size:10px; color:var(--text-dim); margin-top:2px;">
+                    Position: X 0% · Y 0% (Drag video in monitor to move)
+                  </div>
                 </div>
               </div>
 
-              <div class="inspector-field">
-                <label>
-                  <span>Trim In-Point (Start Offset)</span>
-                  <span class="mono" id="insp-inpoint-max" style="color:var(--text-faint);">max —</span>
-                </label>
-                <div style="display:flex; gap:6px; align-items:center;">
-                  <input type="range" id="insp-inpoint-slider" min="0" max="10" step="0.05" value="0" style="flex:1;">
-                  <input type="number" id="insp-inpoint" min="0" step="0.1" value="0.0" style="width:68px;">
+              <!-- SUBTAB 2: COLOR GRADING, LEVELS, CURVES, LUT & FADE -->
+              <div id="insp-pane-color" class="hidden">
+                <div class="grade-grid">
+                  <div class="grade-row">
+                    <label><span>Brightness</span><span class="mono" id="val-grade-brightness">0</span></label>
+                    <input type="range" id="sl-grade-brightness" min="-50" max="50" step="1" value="0">
+                  </div>
+                  <div class="grade-row">
+                    <label><span>Contrast</span><span class="mono" id="val-grade-contrast">0</span></label>
+                    <input type="range" id="sl-grade-contrast" min="-50" max="50" step="1" value="0">
+                  </div>
+                  <div class="grade-row">
+                    <label><span>Saturation</span><span class="mono" id="val-grade-saturation">0</span></label>
+                    <input type="range" id="sl-grade-saturation" min="-100" max="100" step="1" value="0">
+                  </div>
+                  <div class="grade-row">
+                    <label><span>Temperature (Cool/Warm)</span><span class="mono" id="val-grade-temp">0</span></label>
+                    <input type="range" id="sl-grade-temp" min="-100" max="100" step="1" value="0">
+                  </div>
+                  <div class="grade-row">
+                    <label><span>Tint (Green/Magenta)</span><span class="mono" id="val-grade-tint">0</span></label>
+                    <input type="range" id="sl-grade-tint" min="-100" max="100" step="1" value="0">
+                  </div>
+                  <div class="grade-row">
+                    <label><span>Whites (Highlights Level)</span><span class="mono" id="val-grade-whites">0</span></label>
+                    <input type="range" id="sl-grade-whites" min="-50" max="50" step="1" value="0">
+                  </div>
+                  <div class="grade-row">
+                    <label><span>Blacks (Shadows Level)</span><span class="mono" id="val-grade-blacks">0</span></label>
+                    <input type="range" id="sl-grade-blacks" min="-50" max="50" step="1" value="0">
+                  </div>
+                  <div class="grade-row">
+                    <label><span>Vignetting</span><span class="mono" id="val-grade-vignette">0%</span></label>
+                    <input type="range" id="sl-grade-vignette" min="0" max="100" step="1" value="0">
+                  </div>
                 </div>
-              </div>
 
-              <div class="inspector-field">
-                <label><span>Shot Duration (sec)</span></label>
-                <input type="number" id="insp-duration" min="0.1" step="0.05" value="1.0">
-              </div>
-
-              <div class="inspector-field">
-                <label>
-                  <span>Resize / Scale Clip</span>
-                  <span class="mono" id="insp-zoom-val" style="color:var(--accent);">100%</span>
-                </label>
-                <div style="display:flex; gap:6px; align-items:center;">
-                  <input type="range" id="insp-zoom-slider" min="50" max="300" step="1" value="100" style="flex:1;">
-                  <button type="button" id="btn-reset-reframe" class="btn btn-secondary btn-sm" title="Reset size to 100% and center position">⟲ Reset</button>
+                <div class="inspector-field" style="margin-top:8px;">
+                  <label><span>Tone Curve Preset</span></label>
+                  <div class="tactile-select-wrap">
+                    <select id="sel-grade-curve">
+                      <option value="none" selected>Linear (No Curve)</option>
+                      <option value="medium_contrast">Medium Contrast (S-Curve)</option>
+                      <option value="strong_contrast">Strong Contrast</option>
+                      <option value="linear_contrast">Linear Contrast</option>
+                      <option value="lighter">Lighter Lift</option>
+                      <option value="darker">Darker Cinema</option>
+                      <option value="vintage">Vintage Film</option>
+                      <option value="cross_process">Cross Process</option>
+                    </select>
+                  </div>
                 </div>
-                <div class="mono" id="insp-pan-readout" style="font-size:10px; color:var(--text-faint); margin-top:2px;">
-                  Position: X 0% · Y 0% (Drag video in monitor to move)
+
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+                  <div class="inspector-field" style="margin-bottom:0;">
+                    <label><span>Fade In (sec)</span></label>
+                    <input type="number" id="num-grade-fadein" min="0" max="3" step="0.1" value="0.0">
+                  </div>
+                  <div class="inspector-field" style="margin-bottom:0;">
+                    <label><span>Fade Out (sec)</span></label>
+                    <input type="number" id="num-grade-fadeout" min="0" max="3" step="0.1" value="0.0">
+                  </div>
+                </div>
+
+                <div class="upload-inline" style="margin-bottom:8px;">
+                  <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <label for="input-lut" style="font-size:11px; color:var(--text-dim); font-weight:600;">3D LUT (.cube / .3dl)</label>
+                    <button type="button" id="btn-clear-lut" class="btn btn-secondary btn-sm hidden" style="padding:2px 6px; font-size:10px;">Clear LUT</button>
+                  </div>
+                  <input type="file" id="input-lut" accept=".cube,.3dl" style="font-size:11px;">
+                  <span class="mono fn" id="fn-lut" style="font-size:10.5px; color:var(--accent-bright);"></span>
+                </div>
+
+                <div style="display:flex; gap:6px; margin-bottom:6px;">
+                  <button type="button" id="btn-grade-all" class="btn btn-secondary btn-sm" style="flex:1;" title="Copy this shot's color grade & fade settings to all shots on the timeline">✨ Copy Grade to All</button>
+                  <button type="button" id="btn-reset-grade" class="btn btn-secondary btn-sm" title="Reset color adjustments for this shot">⟲ Reset</button>
                 </div>
               </div>
 
               <div style="display:flex; gap:6px; margin-top:10px;">
-                <button id="btn-apply-timeline" class="btn btn-primary btn-sm" style="width:100%;">🔄 Apply Trim / Reframe & Re-Render</button>
+                <button id="btn-apply-timeline" class="btn btn-primary btn-sm" style="width:100%;">🔄 Apply Trim / Color / Reframe & Re-Render</button>
               </div>
             </div>
           </section>
@@ -387,15 +637,18 @@
 
     </div>
 
-    <!-- BOTTOM TIMELINE DOCK (Clip Order, Drag-to-Reorder, Click-to-Trim/Reframe) -->
+    <!-- BOTTOM PREMIERE-LIKE MULTI-TRACK TIMELINE DOCK (Edge Trim [ ], Reorder, + A1 Audio Track) -->
     <section class="nle-timeline-dock">
       <div class="timeline-toolbar">
         <div class="tl-tools-left">
-          <span style="font-weight:600; font-size:12px; color:var(--text);">🎞️ Sequence Timeline</span>
+          <span style="font-weight:600; font-size:12px; color:var(--text);">🎞️ Premiere Timeline</span>
           <span class="tl-stat" id="tl-summary">0 shots · 0.00s</span>
-          <span class="nle-badge" id="tl-hint">Drag shots left/right to reorder · Click any shot to auto-preview, trim, or drag-reframe</span>
+          <span class="nle-badge" id="tl-hint">Drag clip edges [ ] left/right to trim · Drag body to reorder · Click to grade</span>
         </div>
         <div class="tl-tools-right">
+          <input type="file" id="input-custom-audio" accept="audio/*,video/*" hidden>
+          <button type="button" id="btn-add-audio" class="btn btn-secondary btn-sm" title="Add or replace the A1 Audio Track with any MP3, WAV, M4A, or video file">🎵 + Add Audio Track</button>
+          <button type="button" id="btn-clear-audio" class="btn btn-secondary btn-sm hidden" title="Remove custom audio track and revert to reference audio">🔇 Clear Audio</button>
           <div class="arrow-btn-group">
             <button id="btn-move-left" class="btn btn-secondary btn-sm" disabled title="Move selected shot earlier">◀</button>
             <button id="btn-move-right" class="btn btn-secondary btn-sm" disabled title="Move selected shot later">▶</button>
@@ -405,11 +658,41 @@
       </div>
 
       <div class="timeline-tracks-wrap" id="timeline-tracks-wrap">
+        <!-- Timecode Ruler -->
+        <div class="tl-ruler-row">
+          <div class="tl-track-label ruler-label">TC</div>
+          <div class="tl-ruler-strip" id="tl-ruler-strip"></div>
+        </div>
+
+        <!-- V1 Video Track -->
         <div class="tl-track-row">
-          <div class="tl-track-label">V1 · CUTS</div>
+          <div class="tl-track-label">V1 · VIDEO</div>
           <div class="tl-shots-strip" id="tl-shots-strip">
-            <div style="color:var(--text-faint); font-size:11.5px; display:flex; align-items:center; padding-left:8px;">
+            <div style="color:var(--text-dim); font-size:11.5px; display:flex; align-items:center; padding-left:8px;">
               Timeline tracks will populate here as soon as you analyze a reference video or build a reel.
+            </div>
+          </div>
+        </div>
+
+        <!-- A1 Audio Track -->
+        <div class="tl-track-row audio-row">
+          <div class="tl-track-label audio-label">A1 · AUDIO</div>
+          <div class="tl-audio-strip" id="tl-audio-strip">
+            <div class="tl-audio-clip" id="tl-audio-clip">
+              <div class="tl-trim-handle left" id="tl-audio-trim-left" title="Drag right/left to trim Audio Start Offset">[</div>
+              <div class="tl-audio-body">
+                <div class="tl-audio-title" id="tl-audio-title">🔊 Reference Audio Track (Synced)</div>
+                <div class="tl-audio-waveform"></div>
+                <div class="tl-audio-controls">
+                  <span class="mono" id="tl-audio-offset-label">Start: 0.0s</span>
+                  <label style="display:inline-flex; align-items:center; gap:5px; font-size:10px; color:var(--text-dim);">
+                    <span>Vol</span>
+                    <input type="range" id="tl-audio-vol" min="0" max="150" value="100" style="width:65px; height:6px;">
+                    <span class="mono" id="tl-audio-vol-label">100%</span>
+                  </label>
+                </div>
+              </div>
+              <div class="tl-trim-handle right" title="Audio automatically trims to match sequence end">]</div>
             </div>
           </div>
         </div>
@@ -580,6 +863,6 @@
     </div>
   </div>
 
-<script src="/static/app.js?v=30"></script>
+<script src="/static/app.js?v=32"></script>
 </body>
 </html>
