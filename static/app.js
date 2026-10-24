@@ -25,12 +25,15 @@ const localThumbCache = {};
 let lutFile = null;
 let clearLutFlag = false;
 let customAudioFile = null;
+let customAudioUrl = null;
 let clearCustomAudioFlag = false;
 let audioStartOffset = 0.0;
 let audioDurationSec = 0.0; // 0 = auto match video length
 let audioVolumePct = 100;
 let activeInspectorSubtab = "trim"; // "trim" | "color"
 let copiedGradeClipboard = null;
+let isPlayingSequence = false;
+let seqPlaybackStartTime = 0;
 
 // 10-Step Undo / Redo History Stacks
 const MAX_HISTORY_STEPS = 10;
@@ -187,6 +190,9 @@ const buildResult = $("build-result");
 const builtPreview = $("built-preview");
 const sourcePreviewWrap = $("source-preview-wrap");
 const sourcePreview = $("source-preview");
+const fadePreviewLayer = $("fade-preview-layer");
+const liveAudioPlayer = $("live-audio-player");
+const btnSeqPlay = $("btn-seq-play");
 const btnSrcPlay = $("btn-src-play");
 const srcSeekSlider = $("src-seek-slider");
 const srcTimeReadout = $("src-time-readout");
@@ -196,6 +202,7 @@ function showMonitorTab(which) {
     tabSource.classList.add("active");
     tabProgram.classList.remove("active");
     buildResult.classList.add("hidden");
+    if (builtPreview) builtPreview.pause();
     if (sourcePreview.getAttribute("src")) {
       monitorEmpty.classList.add("hidden");
       sourcePreviewWrap.classList.remove("hidden");
@@ -205,6 +212,8 @@ function showMonitorTab(which) {
       monitorEmpty.classList.remove("hidden");
     }
   } else {
+    stopSequencePlayback();
+    if (sourcePreview) sourcePreview.pause();
     tabProgram.classList.add("active");
     tabSource.classList.remove("active");
     sourcePreviewWrap.classList.add("hidden");
@@ -221,10 +230,139 @@ function showMonitorTab(which) {
 if (tabProgram) tabProgram.addEventListener("click", () => showMonitorTab("program"));
 if (tabSource) tabSource.addEventListener("click", () => showMonitorTab("source"));
 
-// Wire Tactile Source Player Transport Bar
+function getActiveAudioUrl() {
+  if (customAudioFile) {
+    if (!customAudioFile._blobUrl) customAudioFile._blobUrl = URL.createObjectURL(customAudioFile);
+    return customAudioFile._blobUrl;
+  }
+  if (!clearCustomAudioFlag && customAudioUrl) {
+    return customAudioUrl;
+  }
+  const overlayCb = $("overlay-audio");
+  if (!overlayCb || overlayCb.checked) {
+    if (referenceFile) {
+      if (!referenceFile._blobUrl) referenceFile._blobUrl = URL.createObjectURL(referenceFile);
+      return referenceFile._blobUrl;
+    }
+    if (referenceUrl) return referenceUrl;
+  }
+  return null;
+}
+
+function syncLiveAudioVolume() {
+  if (!liveAudioPlayer) return;
+  liveAudioPlayer.volume = Math.max(0, Math.min(1, (audioVolumePct || 100) / 100.0));
+}
+
+function updateLiveFadeOverlay(currentClipTime, shot) {
+  if (!fadePreviewLayer) return;
+  if (!shot) {
+    fadePreviewLayer.style.opacity = "0";
+    return;
+  }
+  const g = ensureShotGrade(shot);
+  const inPt = Number(shot.in_point || 0);
+  const dur = Math.max(0.15, Number(shot.duration || 1.0));
+  const elapsed = Math.max(0, currentClipTime - inPt);
+  const fadeIn = Number(g.fade_in || 0);
+  const fadeOut = Number(g.fade_out || 0);
+
+  let blackOpacity = 0;
+  if (fadeIn > 0.02 && elapsed < fadeIn) {
+    blackOpacity = Math.max(blackOpacity, 1 - elapsed / fadeIn);
+  }
+  if (fadeOut > 0.02 && elapsed > dur - fadeOut) {
+    const rem = Math.max(0, dur - elapsed);
+    blackOpacity = Math.max(blackOpacity, 1 - rem / fadeOut);
+  }
+  fadePreviewLayer.style.opacity = Math.max(0, Math.min(1, blackOpacity)).toFixed(2);
+}
+
+function stopSequencePlayback() {
+  isPlayingSequence = false;
+  if (btnSeqPlay) {
+    btnSeqPlay.textContent = "▶ Play Sequence";
+  }
+  if (liveAudioPlayer) {
+    liveAudioPlayer.pause();
+  }
+  if (fadePreviewLayer) {
+    fadePreviewLayer.style.opacity = "0";
+  }
+}
+
+function startSequencePlayback(startIdx = 0) {
+  if (!shotPlan || !shotPlan.length) return;
+  const firstValid = shotPlan.findIndex((s) => s.clip && !s.clip.includes("(awaiting clips)"));
+  if (firstValid < 0) return;
+
+  const idx = startIdx >= 0 && startIdx < shotPlan.length ? startIdx : 0;
+  isPlayingSequence = true;
+  if (btnSeqPlay) {
+    btnSeqPlay.textContent = "⏹ Stop Sequence";
+  }
+
+  // Calculate cumulative sequence offset up to startIdx so A1 Audio syncs accurately
+  let offsetBeforeShot = 0;
+  for (let i = 0; i < idx; i++) {
+    offsetBeforeShot += Number(shotPlan[i].duration || 0);
+  }
+  seqPlaybackStartTime = performance.now() - offsetBeforeShot * 1000;
+
+  const aUrl = getActiveAudioUrl();
+  if (liveAudioPlayer && aUrl) {
+    if (liveAudioPlayer.getAttribute("data-src") !== aUrl) {
+      liveAudioPlayer.src = aUrl;
+      liveAudioPlayer.setAttribute("data-src", aUrl);
+    }
+    syncLiveAudioVolume();
+    const targetAudioTime = Number(audioStartOffset || 0) + offsetBeforeShot;
+    const maxAudioDur = Number(audioDurationSec || 0);
+    if (maxAudioDur <= 0.1 || offsetBeforeShot < maxAudioDur) {
+      try {
+        liveAudioPlayer.currentTime = targetAudioTime;
+        liveAudioPlayer.play().catch(() => {});
+      } catch (e) {}
+    }
+  }
+
+  const keepOrigAudio = $("keep-audio") && $("keep-audio").checked;
+  if (sourcePreview) {
+    sourcePreview.muted = Boolean(aUrl && !keepOrigAudio);
+  }
+
+  selectedShotIdx = idx;
+  renderTimelineTrack();
+  populateInspector();
+  previewSelectedShotInMonitor(true);
+}
+
+if (btnSeqPlay) {
+  btnSeqPlay.addEventListener("click", () => {
+    if (isPlayingSequence) {
+      stopSequencePlayback();
+      if (sourcePreview) sourcePreview.pause();
+    } else {
+      const startAt = selectedShotIdx >= 0 && selectedShotIdx < shotPlan.length ? selectedShotIdx : 0;
+      startSequencePlayback(startAt);
+    }
+  });
+}
+
+// Wire Tactile Source Player Transport Bar (Real-Time Trim Window + Multi-Shot Sequence Loop)
 if (btnSrcPlay && sourcePreview) {
   btnSrcPlay.addEventListener("click", () => {
+    stopSequencePlayback();
+    sourcePreview.muted = false;
     if (sourcePreview.paused) {
+      if (selectedShotIdx >= 0 && selectedShotIdx < shotPlan.length) {
+        const s = shotPlan[selectedShotIdx];
+        const inPt = Number(s.in_point || 0);
+        const outPt = inPt + Number(s.duration || 1.0);
+        if (sourcePreview.currentTime < inPt || sourcePreview.currentTime >= outPt - 0.05) {
+          sourcePreview.currentTime = inPt;
+        }
+      }
       sourcePreview.play().catch(() => {});
     } else {
       sourcePreview.pause();
@@ -239,19 +377,70 @@ if (btnSrcPlay && sourcePreview) {
   sourcePreview.addEventListener("timeupdate", () => {
     const dur = sourcePreview.duration || 0;
     const cur = sourcePreview.currentTime || 0;
+
+    if (selectedShotIdx >= 0 && selectedShotIdx < shotPlan.length) {
+      const shot = shotPlan[selectedShotIdx];
+      const inPt = Number(shot.in_point || 0);
+      const shotDur = Math.max(0.15, Number(shot.duration || 1.0));
+      const outPt = inPt + shotDur;
+
+      updateLiveFadeOverlay(cur, shot);
+
+      if (isPlayingSequence) {
+        // Check if A1 Audio track has exceeded its custom trimmed length
+        if (liveAudioPlayer && !liveAudioPlayer.paused && audioDurationSec > 0.1) {
+          const playedAudio = liveAudioPlayer.currentTime - Number(audioStartOffset || 0);
+          if (playedAudio >= audioDurationSec) {
+            liveAudioPlayer.pause();
+          }
+        }
+        // Advance to next shot in real time when current shot reaches its trimmed out-point
+        if (cur >= outPt - 0.04 || sourcePreview.ended) {
+          if (selectedShotIdx + 1 < shotPlan.length) {
+            selectedShotIdx += 1;
+            renderTimelineTrack();
+            populateInspector();
+            previewSelectedShotInMonitor(true);
+            return;
+          } else {
+            // End of sequence reached
+            stopSequencePlayback();
+            sourcePreview.pause();
+          }
+        }
+      } else if (!sourcePreview.paused) {
+        // Single-shot preview: loop strictly within the trimmed [in_point, out_point] window
+        if (cur >= outPt - 0.03) {
+          sourcePreview.currentTime = inPt;
+          sourcePreview.play().catch(() => {});
+        }
+      }
+    }
+
     if (srcSeekSlider && dur > 0) {
       srcSeekSlider.max = dur.toFixed(2);
       srcSeekSlider.value = cur.toFixed(2);
     }
     if (srcTimeReadout) {
-      srcTimeReadout.textContent = `${cur.toFixed(1)}s / ${dur.toFixed(1)}s`;
+      if (selectedShotIdx >= 0 && selectedShotIdx < shotPlan.length) {
+        const s = shotPlan[selectedShotIdx];
+        const inPt = Number(s.in_point || 0);
+        const outPt = inPt + Number(s.duration || 0);
+        srcTimeReadout.textContent = `${cur.toFixed(1)}s [${inPt.toFixed(1)}–${outPt.toFixed(1)}s]`;
+      } else {
+        srcTimeReadout.textContent = `${cur.toFixed(1)}s / ${dur.toFixed(1)}s`;
+      }
     }
   });
 }
 
 if (srcSeekSlider && sourcePreview) {
   srcSeekSlider.addEventListener("input", () => {
+    stopSequencePlayback();
     sourcePreview.currentTime = parseFloat(srcSeekSlider.value) || 0;
+    if (selectedShotIdx >= 0 && selectedShotIdx < shotPlan.length) {
+      updateLiveFadeOverlay(sourcePreview.currentTime, shotPlan[selectedShotIdx]);
+    }
   });
 }
 
@@ -1009,11 +1198,23 @@ window.addEventListener("mousemove", (e) => {
     const newDur = Math.max(0.15, origDur - actualDelta);
     shot.in_point = Number(newIn.toFixed(2));
     shot.duration = Number(newDur.toFixed(2));
+    if (selectedShotIdx === idx && sourcePreview) {
+      showMonitorTab("source");
+      try {
+        sourcePreview.currentTime = shot.in_point;
+      } catch (err) {}
+    }
   } else {
     // Dragging right edge ']' adjusts Out-Point / Duration
     const maxDur = Math.max(0.5, clipDur - origIn);
     const newDur = Math.max(0.15, Math.min(maxDur, origDur + deltaSec));
     shot.duration = Number(newDur.toFixed(2));
+    if (selectedShotIdx === idx && sourcePreview) {
+      showMonitorTab("source");
+      try {
+        sourcePreview.currentTime = Math.max(0, Number(shot.in_point || 0) + shot.duration - 0.05);
+      } catch (err) {}
+    }
   }
 
   const widthPx = Math.max(96, Math.min(340, Math.round(shot.duration * 110)));
@@ -1250,6 +1451,7 @@ if (tlAudioVol) {
   tlAudioVol.addEventListener("input", () => {
     audioVolumePct = parseInt(tlAudioVol.value, 10) || 100;
     if (tlAudioVolLabel) tlAudioVolLabel.textContent = `${audioVolumePct}%`;
+    syncLiveAudioVolume();
     markTimelineDirty();
   });
 }
@@ -1331,6 +1533,8 @@ function markTimelineDirty() {
 }
 
 function selectShot(idx) {
+  stopSequencePlayback();
+  if (sourcePreview) sourcePreview.muted = false;
   selectedShotIdx = idx;
   renderTimelineTrack();
   populateInspector();
@@ -1845,6 +2049,13 @@ btnExport.addEventListener("click", async () => {
     return;
   }
 
+  // If the user made real-time timeline/grade/trim edits without manually clicking Bake/Re-Render,
+  // automatically bake the edits into the master file before exporting!
+  if (timelineDirty) {
+    setStatus(exportStatus, "⚡ Auto-baking your real-time timeline & grading edits before export…", "working");
+    await runBuild(true);
+  }
+
   const isHdr = Boolean(cbExportHdr && cbExportHdr.checked);
   const container = selExportContainer ? selExportContainer.value : "mp4";
   const codec = isHdr ? "h265" : (selExportCodec ? selExportCodec.value : "h264");
@@ -2179,7 +2390,10 @@ const relinkBanner = $("relink-banner");
 
 function hydrateEditorFromJobState(data) {
   if (!data || !data.job_id) return;
+  stopSequencePlayback();
   jobId = data.job_id;
+  referenceUrl = data.reference_url || null;
+  customAudioUrl = data.custom_audio_url || null;
   if ($("job-id-display")) $("job-id-display").textContent = jobId;
   if (topJobInput) topJobInput.value = data.job_name || jobId;
   if ($("job-name")) $("job-name").value = data.job_name || "";
@@ -2246,13 +2460,13 @@ function hydrateEditorFromJobState(data) {
     selectedShotIdx = 0;
     renderTimelineTrack();
     populateInspector();
+    previewSelectedShotInMonitor(false);
   } else if (currentRhythm) {
     initDraftTimelineFromRhythm();
   }
 
   if (data.built_exists && data.video_url) {
     builtPreview.src = data.video_url + "?t=" + Date.now();
-    showMonitorTab("program");
     enableStep($("step3"));
     const fcpxmlLink = $("direct-fcpxml-link");
     const edlLink = $("direct-edl-link");
@@ -2640,6 +2854,14 @@ bindMenuItem("menu-help-about", () => {
 window.addEventListener("keydown", (e) => {
   const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : "";
   const isTyping = activeTag === "input" || activeTag === "textarea" || activeTag === "select";
+
+  if (e.code === "Space" && !isTyping && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    e.preventDefault();
+    if (btnSeqPlay) {
+      btnSeqPlay.click();
+    }
+    return;
+  }
 
   if ((e.metaKey || e.ctrlKey) && e.altKey && !isTyping) {
     const k = e.key.toLowerCase();

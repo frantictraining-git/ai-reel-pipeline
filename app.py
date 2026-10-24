@@ -384,6 +384,11 @@ def api_job_state(job_id):
                 custom_audio_name = ap.name
                 break
 
+    ref_candidates = list(jdir.glob("reference.*"))
+    reference_url = f"/api/media/{job_id}/{ref_candidates[0].name}" if ref_candidates else None
+    custom_audio_candidates = list(jdir.glob("custom_audio.*"))
+    custom_audio_url = f"/api/media/{job_id}/{custom_audio_candidates[0].name}" if custom_audio_candidates else None
+
     return jsonify({
         "job_id": job_id,
         "job_name": job_name,
@@ -392,6 +397,8 @@ def api_job_state(job_id):
         "shot_plan": shot_plan,
         "built_exists": built_exists,
         "video_url": f"/api/media/{job_id}/built_reel.mp4" if built_exists else None,
+        "reference_url": reference_url,
+        "custom_audio_url": custom_audio_url,
         "local_folder": local_folder,
         "folder_missing": folder_missing,
         "available_clips": available_clips,

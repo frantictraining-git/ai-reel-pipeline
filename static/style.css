@@ -565,7 +565,7 @@ body.nle-body {
   pointer-events: none;
 }
 
-/* Live Vignette Overlay on Source Monitor */
+/* Live Vignette & Fade Overlays on Source Monitor */
 .vignette-preview-layer {
   position: absolute;
   inset: 0;
@@ -574,6 +574,15 @@ body.nle-body {
   opacity: 0;
   background: radial-gradient(circle, rgba(0,0,0,0) 42%, rgba(15,22,28,0.92) 100%);
   transition: opacity 0.1s;
+}
+
+.fade-preview-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0;
+  background: #0F161C;
 }
 
 .reframe-overlay-hint {

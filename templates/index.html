@@ -6,7 +6,7 @@
 <title>Swift Reel</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=33">
+<link rel="stylesheet" href="/static/style.css?v=34">
 </head>
 <body class="nle-body">
 
@@ -404,8 +404,8 @@
       <main class="nle-center-monitor">
         <div class="monitor-toolbar">
           <div class="monitor-tabs">
-            <button class="monitor-tab active" id="tab-program">Program Monitor (Built Reel)</button>
-            <button class="monitor-tab" id="tab-source">Source / Interactive Reframe</button>
+            <button class="monitor-tab active" id="tab-source">⚡ Live Sequence & Reframe (Real-Time)</button>
+            <button class="monitor-tab" id="tab-program">Rendered Master File</button>
           </div>
           <div class="monitor-info-pill" id="monitor-info" title="Click to change resolution & frame rate">1080 × 1920 · 30 FPS ⚙</div>
         </div>
@@ -423,14 +423,18 @@
 
           <div id="source-preview-wrap" class="monitor-video-wrap hidden" style="flex-direction:column; gap:8px;">
             <div id="reframe-viewport" class="reframe-viewport" title="Drag with mouse to reposition clip">
-              <video id="source-preview" playsinline loop></video>
+              <video id="source-preview" playsinline></video>
               <div id="vignette-preview-layer" class="vignette-preview-layer"></div>
+              <div id="fade-preview-layer" class="fade-preview-layer"></div>
               <div class="reframe-overlay-hint" id="reframe-overlay-hint">🖐️ Drag video to reposition · Scroll or use slider to resize</div>
             </div>
+            <!-- Hidden Audio Player for Real-Time CapCut Sequence Playback -->
+            <audio id="live-audio-player" preload="auto" hidden></audio>
             <!-- Tactile Player Transport Bar matching the reference UI bottom player -->
-            <div class="tactile-player-bar">
-              <button type="button" id="btn-src-play" class="player-play-btn" title="Play / Pause">▶</button>
-              <input type="range" id="src-seek-slider" min="0" max="100" step="0.1" value="0" style="flex:1;">
+            <div class="tactile-player-bar" style="max-width:480px;">
+              <button type="button" id="btn-src-play" class="player-play-btn" title="Play / Pause Selected Clip">▶</button>
+              <button type="button" id="btn-seq-play" class="btn btn-primary btn-sm" style="padding:3px 9px; font-size:10.5px; white-space:nowrap;" title="Play entire timeline sequence in real-time with grading, trims & audio (Spacebar)">▶ Play Sequence</button>
+              <input type="range" id="src-seek-slider" min="0" max="100" step="0.05" value="0" style="flex:1;">
               <span class="mono" id="src-time-readout" style="font-size:10.5px; color:var(--text-dim); min-width:74px; text-align:right;">0.0s / 0.0s</span>
             </div>
           </div>
@@ -590,7 +594,7 @@
               </div>
 
               <div style="display:flex; gap:6px; margin-top:10px;">
-                <button id="btn-apply-timeline" class="btn btn-primary btn-sm" style="width:100%;">🔄 Apply Trim / Color / Reframe & Re-Render</button>
+                <button id="btn-apply-timeline" class="btn btn-primary btn-sm" style="width:100%;" title="Preview is 100% Real-Time! Click here to bake your edits into the Rendered Master File">💾 Bake Edits to Master File</button>
               </div>
             </div>
           </section>
@@ -701,7 +705,7 @@
             <button id="btn-move-left" class="btn btn-secondary btn-sm" disabled title="Move selected shot earlier">◀</button>
             <button id="btn-move-right" class="btn btn-secondary btn-sm" disabled title="Move selected shot later">▶</button>
           </div>
-          <button id="btn-rebuild-order" class="btn btn-primary btn-sm hidden">✨ Apply Timeline Changes</button>
+          <button id="btn-rebuild-order" class="btn btn-primary btn-sm hidden" title="Preview is live in real time — click to bake edits into the master file">💾 Bake Edits to Master File</button>
         </div>
       </div>
 
@@ -911,6 +915,6 @@
     </div>
   </div>
 
-<script src="/static/app.js?v=33"></script>
+<script src="/static/app.js?v=34"></script>
 </body>
 </html>
