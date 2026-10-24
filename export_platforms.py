@@ -45,12 +45,14 @@ LOGO_POSITIONS = {
 from typing import Optional
 
 def export_format(src: Path, out_path: Path, w: int, h: int, logo: Optional[Path],
-                   logo_pos: str, srt: Optional[Path]):
+                   logo_pos: str, srt: Optional[Path],
+                   codec: str = "h264", fps: Optional[float] = None):
     filters = []
     inputs = ["-i", str(src)]
 
     # scale+crop to fill target aspect
-    filters.append(f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}[base]")
+    fps_filter = f",fps={fps}" if fps else ""
+    filters.append(f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1{fps_filter}[base]")
     last_label = "base"
 
     if srt is not None:
@@ -77,11 +79,17 @@ def export_format(src: Path, out_path: Path, w: int, h: int, logo: Optional[Path
 
     filter_complex = ";".join(filters)
 
+    if codec.lower() in ("h265", "hevc", "libx265"):
+        vcodec_args = ["-c:v", "libx265", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p", "-tag:v", "hvc1"]
+    else:
+        vcodec_args = ["-c:v", "libx264", "-preset", "fast", "-crf", "18", "-pix_fmt", "yuv420p"]
+
     cmd = [FFMPEG, "-y", *inputs,
            "-filter_complex", filter_complex,
            "-map", map_video, "-map", "0:a?",
-           "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p",
+           *vcodec_args,
            "-c:a", "aac", "-b:a", "192k",
+           "-movflags", "+faststart",
            "-loglevel", "error", str(out_path)]
 
     subprocess.run(cmd, check=True)

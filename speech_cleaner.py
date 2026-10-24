@@ -98,11 +98,13 @@ def transcribe(audio_path: str, model_size: str = "base") -> list:
         download_root=str(model_dir)
     )
     
+    import torch
+    
     result = model.transcribe(
         audio_path,
         word_timestamps=True,
         language="en",
-        fp16=False,          # Mac CPU — no GPU fp16
+        fp16=torch.cuda.is_available(),  # Fast on Linux GPU, safe on Mac CPU
         verbose=False,
     )
 

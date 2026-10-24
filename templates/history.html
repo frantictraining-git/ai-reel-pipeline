@@ -6,7 +6,7 @@
 <title>Job History — LondonGaze</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=6">
+<link rel="stylesheet" href="/static/style.css?v=25">
 <style>
   .stats-row {
     display: grid;
@@ -15,7 +15,7 @@
     margin-top: 16px;
   }
   .stat-card {
-    background: rgba(255, 255, 255, 0.3);
+    background: var(--bg-panel);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--border);
@@ -50,7 +50,7 @@
     margin-bottom: 16px;
   }
   .job-card {
-    background: rgba(255, 255, 255, 0.3);
+    background: var(--bg-panel);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--border);
@@ -65,7 +65,7 @@
     transition: all 0.15s ease;
   }
   .job-card:hover {
-    background: rgba(255, 255, 255, 0.45);
+    background: var(--bg-hover);
     box-shadow: var(--shadow-md);
   }
   .job-card input[type="checkbox"] {

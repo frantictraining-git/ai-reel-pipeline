@@ -6,7 +6,7 @@
 <title>Media Sorter — LondonGaze</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=7">
+<link rel="stylesheet" href="/static/style.css?v=25">
 </head>
 <body>
 <div class="wrap">
@@ -40,7 +40,7 @@
     <div class="controls" style="margin-top:20px; flex-direction:column; align-items:flex-start;">
       <label class="slider-label" style="width:100%;">
         Categories to sort by (comma-separated)
-        <input type="text" id="categories" class="mono" value="food,kitchen,interior,person" style="width:100%; margin-top:6px; background: rgba(255, 255, 255, 0.4); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid var(--border); border-radius: var(--radius-pill); color: var(--text); padding: 8px 14px; outline: none; box-shadow: var(--shadow-inset);">
+        <input type="text" id="categories" class="mono" value="food,kitchen,interior,person" style="width:100%; margin-top:6px; background: var(--bg-darker); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid var(--border); border-radius: var(--radius-pill); color: var(--text); padding: 8px 14px; outline: none; box-shadow: var(--shadow-inset);">
       </label>
     </div>
 
@@ -85,9 +85,30 @@ $("btn-sort").addEventListener("click", async () => {
   const fd = new FormData();
   fd.append("folder", selectedFolder);
   fd.append("categories", $("categories").value);
-  
+
   try {
-    await fetch("/api/sort_media", { method: "POST", body: fd });
+    const res = await fetch("/api/sort_media", { method: "POST", body: fd });
+    const data = await res.json();
+
+    // If server warns that folders already exist, ask user
+    if (data.warning) {
+      $("btn-sort").disabled = false;
+      $("sort-status").className = "status hidden";
+      const existing = data.existing.join(", ");
+      const confirmed = confirm(`⚠️ These category folders already exist and have files:\n\n${existing}\n\nDo you want to continue sorting and add new files into them?`);
+      if (!confirmed) return;
+
+      // Re-submit with force=true
+      const fd2 = new FormData();
+      fd2.append("folder", selectedFolder);
+      fd2.append("categories", $("categories").value);
+      fd2.append("force", "true");
+      $("btn-sort").disabled = true;
+      $("sort-status").classList.remove("hidden");
+      $("sort-status").className = "status working";
+      $("sort-status").innerText = "Warming up AI Vision model...";
+      await fetch("/api/sort_media", { method: "POST", body: fd2 });
+    }
     
     // Poll progress
     const intv = setInterval(async () => {

@@ -3,172 +3,583 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Reel Pipeline — LondonGaze</title>
+<title>Swift Reel</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=7">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css?v=30">
 </head>
-<body>
-<div class="wrap">
+<body class="nle-body">
 
-  <header>
-    <div class="wordmark">REEL<span>PIPELINE</span></div>
-    <p class="tagline">Match the cut. Keep the footage yours.<br>Runs entirely on this machine — nothing you drop here leaves it.</p>
+  <!-- TOP TACTILE MENU BAR (Swift Reel) -->
+  <header class="nle-topbar">
+    <div class="nle-brand">
+      <span class="home-glyph">⌂</span>
+      <div class="wordmark">SWIFT<span>REEL</span></div>
+    </div>
+
+    <!-- FILE DROPDOWN MENU -->
+    <div class="file-menu-wrap" id="file-menu-wrap">
+      <button type="button" class="file-menu-btn" id="btn-file-menu">File ▾</button>
+      <div class="file-dropdown" id="file-dropdown">
+        <button type="button" class="file-menu-item" id="menu-new-job">
+          <span>New Job</span>
+          <span class="shortcut">⌘N</span>
+        </button>
+        <button type="button" class="file-menu-item" id="menu-open-job">
+          <span>Open Job…</span>
+          <span class="shortcut">⌘O</span>
+        </button>
+        <button type="button" class="file-menu-item" id="menu-save-job">
+          <span>Save Job…</span>
+          <span class="shortcut">⌘S</span>
+        </button>
+        <button type="button" class="file-menu-item" id="menu-close-job">
+          <span>Close Job</span>
+          <span class="shortcut">⌘W</span>
+        </button>
+        <div class="file-menu-divider"></div>
+        <button type="button" class="file-menu-item" id="menu-quit-app">
+          <span>Close Swift Reel</span>
+          <span class="shortcut">⌘Q</span>
+        </button>
+      </div>
+    </div>
+
+    <nav class="tab-nav" id="main-tab-nav">
+      <button type="button" class="tab-link active" data-tab="beatsync">Beat Sync Editor</button>
+      <button type="button" class="tab-link" data-tab="cleaner">Speech Cleaner</button>
+      <button type="button" class="tab-link" data-tab="sorter">Media Sorter</button>
+      <button type="button" class="tab-link" data-tab="history">Job History</button>
+    </nav>
+
+    <div class="nle-top-actions">
+      <div class="job-pill" title="Click to rename the current job (press Enter to save)">
+        <span style="color:var(--text-dim);">JOB:</span>
+        <input type="text" id="top-job-name" class="top-job-input" value="—" placeholder="Untitled Job">
+        <span id="job-id-display" class="hidden"></span>
+      </div>
+      <input type="file" id="input-open-project" accept=".reelproj,.json" hidden>
+      <button type="button" id="btn-open-project" class="btn btn-secondary btn-sm" title="Open a saved .reelproj project file">📂 Open Job</button>
+      <button type="button" id="btn-save-project" class="btn btn-primary btn-sm" title="Save current job, timeline & reframes to a .reelproj file">💾 Save Job</button>
+      <button type="button" id="btn-open-settings" class="btn btn-secondary btn-sm">⚙️ Settings</button>
+    </div>
   </header>
 
-    <nav class="tab-nav">
-    <a href="/" class="tab-link active">Beat Sync Editor</a>
-    <a href="/cleaner" class="tab-link">Speech Cleaner</a>
-    <a href="/sorter" class="tab-link">Media Sorter</a>
-    <a href="/history" class="tab-link">Job History</a>
-  </nav>
+  <!-- ================================================================= -->
+  <!-- SETTINGS MODAL BOX (Video Dimension & Frame Rate)                 -->
+  <!-- ================================================================= -->
+  <div id="settings-modal-backdrop" class="modal-backdrop hidden">
+    <div class="tactile-modal">
+      <button type="button" id="btn-close-settings" class="modal-close-x" title="Close">×</button>
+      <h3 class="modal-title">Project Video Settings</h3>
+      <p class="modal-desc">Choose your master sequence resolution and frame rate. The preview frame and DaVinci Resolve timelines automatically adapt to these settings.</p>
 
-  <!-- STEP 1 -->
-  <section class="step" id="step1">
-    <div class="step-head">
-      <span class="step-num">01</span>
-      <div>
-        <h2>Analyze reference</h2>
-        <p class="step-desc">Drop the reel whose cut pacing you want to match.</p>
-      </div>
-    </div>
-
-    <div class="dropzone" id="dz-reference">
-      <input type="file" id="input-reference" accept="video/*" hidden>
-      <div class="dz-icon">＋</div>
-      <div class="dz-label">Drop reference video, or click to browse</div>
-      <div class="dz-filename" id="fn-reference"></div>
-    </div>
-
-    <div class="controls">
-      <div style="display: flex; flex-direction: column; gap: 8px;">
-        <label class="slider-label">
-          Cut sensitivity
-          <input type="range" id="threshold" min="10" max="45" value="20">
-          <span class="mono" id="threshold-val">20</span>
-        </label>
-        <div style="font-size: 11.5px; color: var(--text-dim); max-width: 320px; line-height: 1.4;">
-          <strong>Tip:</strong> Lower values (15-20) are more sensitive and catch rapid flash-cuts. Higher values ignore fast camera movements.
+      <div class="modal-field">
+        <label for="setting-dimension">Video Dimension (Resolution & Aspect Ratio)</label>
+        <div class="tactile-select-wrap">
+          <select id="setting-dimension">
+            <option value="1080x1920" selected>1080 × 1920 — 9:16 Vertical HD (Reels / TikTok)</option>
+            <option value="2160x3840">2160 × 3840 — 9:16 Vertical 4K UHD</option>
+            <option value="1080x1350">1080 × 1350 — 4:5 Portrait (Instagram Feed)</option>
+            <option value="1080x1080">1080 × 1080 — 1:1 Square</option>
+            <option value="1920x1080">1920 × 1080 — 16:9 Landscape HD (YouTube)</option>
+            <option value="3840x2160">3840 × 2160 — 16:9 Landscape 4K UHD</option>
+          </select>
         </div>
       </div>
-      
-      <div style="display: flex; flex-direction: column; gap: 8px;">
-        <label class="slider-label">
-          Job Name (Optional)
-          <input type="text" id="job-name" class="mono" placeholder="e.g. food_promo" style="background: rgba(255, 255, 255, 0.4); backdrop-filter: blur(10px); border: 1px solid var(--border); border-radius: var(--radius-pill); color: var(--text); padding: 8px 14px; outline: none; margin-left:10px;">
-        </label>
+
+      <div class="modal-field">
+        <label for="setting-fps">Frame Rate (FPS)</label>
+        <div class="tactile-select-wrap">
+          <select id="setting-fps">
+            <option value="24">24 fps — Cinema Film</option>
+            <option value="25">25 fps — PAL Broadcast</option>
+            <option value="30" selected>30 fps — Social Media Standard</option>
+            <option value="50">50 fps — PAL High Frame Rate</option>
+            <option value="60">60 fps — Smooth High Motion</option>
+          </select>
+        </div>
       </div>
-      <button id="btn-analyze" class="btn btn-primary" disabled>Analyze</button>
 
-    </div>
-
-    <div id="analyze-status" class="status hidden"></div>
-
-    <div id="rhythm-result" class="result hidden">
-      <div class="rhythm-strip" id="rhythm-strip"></div>
-      <table class="shot-table">
-        <thead><tr><th>Shot</th><th>In</th><th>Out</th><th>Duration</th></tr></thead>
-        <tbody id="shot-table-body"></tbody>
-      </table>
-    </div>
-  </section>
-
-  <!-- STEP 2 -->
-  <section class="step disabled" id="step2">
-    <div class="step-head">
-      <span class="step-num">02</span>
-      <div>
-        <h2>Build reel</h2>
-        <p class="step-desc">Drop your own trimmed footage — clips fill the shot slots above, in order.</p>
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:16px;">
+        <button type="button" id="btn-save-settings" class="btn btn-primary">Apply Settings</button>
       </div>
     </div>
+  </div>
 
-    <div class="dropzone" id="dz-clips">
-      <input type="file" id="input-clips" accept="video/*" multiple hidden>
-      <input type="file" id="input-clips-folder" accept="video/*" webkitdirectory directory multiple hidden>
-      <div class="dz-icon">＋</div>
-      <div class="dz-label" style="display:flex; align-items:center; justify-content:center; gap:12px;">
-        <span>Drop footage clips, or click to pick files</span>
-        <span style="color:var(--border-light)">|</span>
-        <button id="btn-browse-folder" class="btn btn-secondary" style="font-size:11.5px; padding:6px 12px; font-family:'Inter',sans-serif; background:var(--bg); color:var(--text);">Pick Folder</button>
+  <!-- ================================================================= -->
+  <!-- TAB 1: BEAT SYNC EDITOR                                           -->
+  <!-- ================================================================= -->
+  <div class="tab-view" id="tab-view-beatsync">
+    <div class="nle-workspace">
+
+      <!-- LEFT SCROLLABLE DOCK: Reference + Media Library + AI Tagging + Build -->
+      <aside class="nle-left-dock">
+        <div class="dock-header">
+          <span>Media Pool & Beat Sync</span>
+        </div>
+
+        <div class="dock-scroll">
+          <!-- PANEL 1: REFERENCE VIDEO -->
+          <section class="dock-panel" id="step1">
+            <div class="dock-panel-title">
+              <h3><span class="step-num">01</span> Reference Video</h3>
+            </div>
+
+            <div class="dropzone" id="dz-reference">
+              <input type="file" id="input-reference" accept="video/*" hidden>
+              <div class="dz-icon">🎬</div>
+              <div class="dz-label">Drop reference reel or click to browse</div>
+              <div class="dz-filename" id="fn-reference"></div>
+            </div>
+
+            <div style="margin-top:10px; display:flex; flex-direction:column; gap:8px;">
+              <label class="slider-label" style="justify-content:space-between;">
+                <span>Cut Sensitivity</span>
+                <input type="range" id="threshold" min="10" max="45" value="20" style="flex:1; margin:0 8px;">
+                <span class="mono" id="threshold-val">20</span>
+              </label>
+              <div style="display:flex; gap:8px; align-items:center;">
+                <input type="text" id="job-name" class="mono tactile-input" placeholder="Job name (optional)" style="flex:1;">
+                <button id="btn-analyze" class="btn btn-primary" disabled>Analyze Cuts</button>
+              </div>
+            </div>
+
+            <div id="analyze-status" class="status hidden"></div>
+
+            <div id="rhythm-result" class="hidden" style="margin-top:10px;">
+              <div class="rhythm-strip" id="rhythm-strip"></div>
+              <details style="margin-top:8px;">
+                <summary style="font-size:11px; color:var(--text-dim); cursor:pointer;">View Detected Shot List</summary>
+                <div style="max-height:130px; overflow-y:auto; margin-top:6px;">
+                  <table class="shot-table">
+                    <thead><tr><th>Shot</th><th>In</th><th>Out</th><th>Dur</th></tr></thead>
+                    <tbody id="shot-table-body"></tbody>
+                  </table>
+                </div>
+              </details>
+            </div>
+          </section>
+
+          <!-- PANEL 2: MEDIA LIBRARY & AI SMART MATCH -->
+          <section class="dock-panel disabled" id="step2">
+            <div class="dock-panel-title" style="gap:6px; flex-wrap:wrap;">
+              <h3><span class="step-num">02</span> Media Library & Build</h3>
+              <div style="display:flex; align-items:center; gap:5px;">
+                <div class="view-toggle" id="media-view-toggle" title="Switch between List and Thumbnail view">
+                  <button type="button" class="view-btn active" data-view="thumb">▦ Thumb</button>
+                  <button type="button" class="view-btn" data-view="list">☰ List</button>
+                </div>
+                <button id="btn-browse-folder" class="btn btn-secondary btn-sm" title="Pick a Mac folder of source footage">📁 Folder</button>
+                <button id="btn-relink-folder" class="btn btn-secondary btn-sm" title="Relink footage if your source folder was moved or renamed">🔗 Relink</button>
+              </div>
+            </div>
+
+            <div id="relink-banner" class="status error hidden" style="margin-bottom:8px;">
+              ⚠️ Source footage folder moved or missing! Click <strong>🔗 Relink</strong> to point to its new location.
+            </div>
+
+            <div class="dropzone" id="dz-clips">
+              <input type="file" id="input-clips" accept="video/*" multiple hidden>
+              <input type="file" id="input-clips-folder" accept="video/*" webkitdirectory directory multiple hidden>
+              <div class="dz-icon">＋</div>
+              <div class="dz-label">Drop footage clips or click to select files</div>
+              <div class="dz-filename" id="fn-clips"></div>
+            </div>
+
+            <div id="clip-list" class="clip-list thumb-grid"></div>
+
+            <!-- Smart Match Controls -->
+            <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
+              <label class="checkbox">
+                <input type="checkbox" id="smart-match">
+                AI Smart-Match by Content (CLIP Vision)
+              </label>
+
+              <div id="smart-match-options" style="display:none; flex-direction:column; gap:8px; margin-top:8px;">
+                <input type="text" id="categories" class="mono tactile-input" value="food,kitchen,interior,person" placeholder="Categories (comma-separated)" style="width:100%;">
+                <button id="btn-tag" class="btn btn-secondary" style="width:100%;">🤖 Tag Content with AI</button>
+              </div>
+
+              <div id="tag-status" class="status hidden"></div>
+            </div>
+
+            <!-- Audio Options + Build Button -->
+            <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border); display:flex; flex-direction:column; gap:8px;">
+              <label class="checkbox"><input type="checkbox" id="keep-audio"> Keep original clip audio</label>
+              <label class="checkbox"><input type="checkbox" id="overlay-audio" checked> Overlay reference audio track</label>
+
+              <button id="btn-build" class="btn btn-primary" disabled style="width:100%; margin-top:4px; padding:9px;">⚡ Build Reel & Timeline</button>
+            </div>
+
+            <div id="build-status" class="status hidden"></div>
+          </section>
+        </div>
+      </aside>
+
+      <!-- CENTER PLAYER MONITOR -->
+      <main class="nle-center-monitor">
+        <div class="monitor-toolbar">
+          <div class="monitor-tabs">
+            <button class="monitor-tab active" id="tab-program">Program Monitor (Built Reel)</button>
+            <button class="monitor-tab" id="tab-source">Source / Interactive Reframe</button>
+          </div>
+          <div class="monitor-info-pill" id="monitor-info" title="Click to change resolution & frame rate">1080 × 1920 · 30 FPS ⚙</div>
+        </div>
+
+        <div class="monitor-stage" id="monitor-stage">
+          <div id="monitor-empty" class="monitor-empty">
+            <div class="empty-icon">🎞️</div>
+            <div style="font-size:13px; color:var(--text-dim); font-weight:500;">No Active Timeline Preview</div>
+            <div style="font-size:11.5px; margin-top:4px;">Drop a reference reel on the left to detect cuts & build your sequence.</div>
+          </div>
+
+          <div id="build-result" class="monitor-video-wrap hidden">
+            <video id="built-preview" controls playsinline></video>
+          </div>
+
+          <div id="source-preview-wrap" class="monitor-video-wrap hidden" style="flex-direction:column; gap:8px;">
+            <div id="reframe-viewport" class="reframe-viewport" title="Drag with mouse to reposition clip">
+              <video id="source-preview" playsinline loop></video>
+              <div class="reframe-overlay-hint" id="reframe-overlay-hint">🖐️ Drag video to reposition · Scroll or use slider to resize</div>
+            </div>
+            <!-- Tactile Player Transport Bar matching the reference UI bottom player -->
+            <div class="tactile-player-bar">
+              <button type="button" id="btn-src-play" class="player-play-btn" title="Play / Pause">▶</button>
+              <input type="range" id="src-seek-slider" min="0" max="100" step="0.1" value="0" style="flex:1;">
+              <span class="mono" id="src-time-readout" style="font-size:10.5px; color:var(--text-dim); min-width:74px; text-align:right;">0.0s / 0.0s</span>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- RIGHT INSPECTOR: CLIP TRIM / RESIZE & DRAG REFRAME + EXPORT -->
+      <aside class="nle-right-inspector">
+        <div class="dock-header">
+          <span>Inspector & Export</span>
+        </div>
+
+        <div class="inspector-scroll">
+          <!-- SHOT INSPECTOR (Trim / Swap Clip / Resize & Drag Reframe) -->
+          <section class="dock-panel" id="shot-inspector-panel">
+            <div class="dock-panel-title">
+              <h3>✂️ Shot Trim & Reframe</h3>
+              <span class="mono" id="insp-shot-badge" style="font-size:10.5px; color:var(--accent);">No shot selected</span>
+            </div>
+
+            <div id="insp-empty" style="font-size:11.5px; color:var(--text-faint); padding:6px 0;">
+              Click any shot card in the bottom timeline to preview it, drag the video in the monitor to reposition, or use the resize slider below.
+            </div>
+
+            <div id="insp-controls" class="hidden">
+              <div class="inspector-field">
+                <label><span>Assigned Source Clip</span></label>
+                <div class="tactile-select-wrap">
+                  <select id="insp-clip-select"></select>
+                </div>
+              </div>
+
+              <div class="inspector-field">
+                <label>
+                  <span>Trim In-Point (Start Offset)</span>
+                  <span class="mono" id="insp-inpoint-max" style="color:var(--text-faint);">max —</span>
+                </label>
+                <div style="display:flex; gap:6px; align-items:center;">
+                  <input type="range" id="insp-inpoint-slider" min="0" max="10" step="0.05" value="0" style="flex:1;">
+                  <input type="number" id="insp-inpoint" min="0" step="0.1" value="0.0" style="width:68px;">
+                </div>
+              </div>
+
+              <div class="inspector-field">
+                <label><span>Shot Duration (sec)</span></label>
+                <input type="number" id="insp-duration" min="0.1" step="0.05" value="1.0">
+              </div>
+
+              <div class="inspector-field">
+                <label>
+                  <span>Resize / Scale Clip</span>
+                  <span class="mono" id="insp-zoom-val" style="color:var(--accent);">100%</span>
+                </label>
+                <div style="display:flex; gap:6px; align-items:center;">
+                  <input type="range" id="insp-zoom-slider" min="50" max="300" step="1" value="100" style="flex:1;">
+                  <button type="button" id="btn-reset-reframe" class="btn btn-secondary btn-sm" title="Reset size to 100% and center position">⟲ Reset</button>
+                </div>
+                <div class="mono" id="insp-pan-readout" style="font-size:10px; color:var(--text-faint); margin-top:2px;">
+                  Position: X 0% · Y 0% (Drag video in monitor to move)
+                </div>
+              </div>
+
+              <div style="display:flex; gap:6px; margin-top:10px;">
+                <button id="btn-apply-timeline" class="btn btn-primary btn-sm" style="width:100%;">🔄 Apply Trim / Reframe & Re-Render</button>
+              </div>
+            </div>
+          </section>
+
+          <!-- STEP 3: EXPORT & DAVINCI RESOLVE -->
+          <section class="dock-panel disabled" id="step3">
+            <div class="dock-panel-title">
+              <h3><span class="step-num">03</span> Export & Resolve</h3>
+            </div>
+
+            <!-- Instant DaVinci Resolve Timeline Box -->
+            <div class="resolve-box">
+              <div style="font-weight:600; font-size:12px; color:var(--accent); margin-bottom:4px;">🎬 DaVinci Resolve NLE Timeline</div>
+              <div style="font-size:11px; color:var(--text-dim); margin-bottom:8px; line-height:1.35;">
+                <strong>FCPXML (Recommended)</strong> links directly to your folder with exact filenames. <strong>EDL</strong> uses unique Reel IDs per clip.
+              </div>
+              <div style="display:flex; gap:6px;">
+                <a id="direct-fcpxml-link" class="btn btn-primary btn-sm" style="flex:1; text-decoration:none;" href="#" download="timeline.fcpxml">FCPXML ↓</a>
+                <a id="direct-edl-link" class="btn btn-secondary btn-sm" style="flex:1; text-decoration:none;" href="#" download="timeline.edl">CMX3600 EDL ↓</a>
+              </div>
+            </div>
+
+            <!-- Container & Video Codec Selectors -->
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px;">
+              <div class="inspector-field" style="margin-bottom:0;">
+                <label><span>Container</span></label>
+                <div class="tactile-select-wrap">
+                  <select id="export-container">
+                    <option value="mp4" selected>MP4 (.mp4)</option>
+                    <option value="mov">QuickTime (.mov)</option>
+                  </select>
+                </div>
+              </div>
+              <div class="inspector-field" style="margin-bottom:0;">
+                <label><span>Video Codec</span></label>
+                <div class="tactile-select-wrap">
+                  <select id="export-codec">
+                    <option value="h264" selected>H.264 (AVC)</option>
+                    <option value="h265">H.265 (HEVC)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div class="format-grid">
+              <label class="checkbox" style="grid-column: span 2;"><input type="checkbox" class="fmt" value="project" checked> <span>PROJECT</span> Current Settings Dimension</label>
+              <label class="checkbox"><input type="checkbox" class="fmt" value="9:16"> <span>9:16</span> Reels/TikTok</label>
+              <label class="checkbox"><input type="checkbox" class="fmt" value="1:1"> <span>1:1</span> Square</label>
+              <label class="checkbox"><input type="checkbox" class="fmt" value="4:5"> <span>4:5</span> Portrait</label>
+              <label class="checkbox"><input type="checkbox" class="fmt" value="16:9"> <span>16:9</span> YouTube</label>
+              <label class="checkbox" style="grid-column: span 2;"><input type="checkbox" class="fmt" value="edl" checked> <span>TIMELINE</span> Include Resolve Timeline Card</label>
+            </div>
+
+            <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:10px;">
+              <div class="upload-inline">
+                <label for="input-logo" style="font-size:11px; color:var(--text-dim);">Watermark Logo (PNG)</label>
+                <input type="file" id="input-logo" accept="image/png" style="font-size:11px;">
+                <span class="mono fn" id="fn-logo"></span>
+              </div>
+              <div class="upload-inline">
+                <label for="input-srt" style="font-size:11px; color:var(--text-dim);">Captions (.srt)</label>
+                <input type="file" id="input-srt" accept=".srt" style="font-size:11px;">
+                <span class="mono fn" id="fn-srt"></span>
+              </div>
+            </div>
+
+            <button id="btn-export" class="btn btn-primary" style="width:100%;">🚀 Export Selected Formats</button>
+
+            <div id="export-status" class="status hidden"></div>
+            <div id="export-result" class="export-grid hidden"></div>
+          </section>
+        </div>
+      </aside>
+
+    </div>
+
+    <!-- BOTTOM TIMELINE DOCK (Clip Order, Drag-to-Reorder, Click-to-Trim/Reframe) -->
+    <section class="nle-timeline-dock">
+      <div class="timeline-toolbar">
+        <div class="tl-tools-left">
+          <span style="font-weight:600; font-size:12px; color:var(--text);">🎞️ Sequence Timeline</span>
+          <span class="tl-stat" id="tl-summary">0 shots · 0.00s</span>
+          <span class="nle-badge" id="tl-hint">Drag shots left/right to reorder · Click any shot to auto-preview, trim, or drag-reframe</span>
+        </div>
+        <div class="tl-tools-right">
+          <div class="arrow-btn-group">
+            <button id="btn-move-left" class="btn btn-secondary btn-sm" disabled title="Move selected shot earlier">◀</button>
+            <button id="btn-move-right" class="btn btn-secondary btn-sm" disabled title="Move selected shot later">▶</button>
+          </div>
+          <button id="btn-rebuild-order" class="btn btn-primary btn-sm hidden">✨ Apply Timeline Changes</button>
+        </div>
       </div>
-      <div class="dz-filename" id="fn-clips" style="margin-top:12px; font-family:monospace; color:var(--accent); word-break:break-all;"></div>
-    </div>
 
-    <div id="clip-list" class="clip-list"></div>
-
-    <div class="controls">
-      <label class="checkbox"><input type="checkbox" id="smart-match"> Smart-match by content (food, kitchen, interior, person…)</label>
-    </div>
-
-    <div class="controls" id="smart-match-options" style="display:none;">
-      <label class="slider-label" style="flex:1;">
-        Categories (comma-separated)
-        <input type="text" id="categories" class="mono" value="food,kitchen,interior,person" style="width:100%; margin-top:6px; background: rgba(255, 255, 255, 0.4); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid var(--border); border-radius: var(--radius-pill); color: var(--text); padding: 8px 14px; outline: none; box-shadow: var(--shadow-inset);">
-      </label>
-      <button id="btn-tag" class="btn btn-secondary">Tag content</button>
-    </div>
-
-    <div id="tag-status" class="status hidden"></div>
-
-    <div class="controls">
-      <label class="checkbox"><input type="checkbox" id="keep-audio"> Keep each clip's original audio</label>
-      <label class="checkbox"><input type="checkbox" id="overlay-audio" checked> Overlay reference video audio track</label>
-      <button id="btn-build" class="btn btn-primary" disabled>Build reel</button>
-    </div>
-
-    <div id="build-status" class="status hidden"></div>
-
-    <div id="build-result" class="result hidden">
-      <video id="built-preview" controls></video>
-    </div>
-  </section>
-
-  <!-- STEP 3 -->
-  <section class="step disabled" id="step3">
-    <div class="step-head">
-      <span class="step-num">03</span>
-      <div>
-        <h2>Export</h2>
-        <p class="step-desc">Pick your platforms. Logo and captions are optional.</p>
+      <div class="timeline-tracks-wrap" id="timeline-tracks-wrap">
+        <div class="tl-track-row">
+          <div class="tl-track-label">V1 · CUTS</div>
+          <div class="tl-shots-strip" id="tl-shots-strip">
+            <div style="color:var(--text-faint); font-size:11.5px; display:flex; align-items:center; padding-left:8px;">
+              Timeline tracks will populate here as soon as you analyze a reference video or build a reel.
+            </div>
+          </div>
+        </div>
       </div>
+    </section>
+  </div>
+
+  <!-- ================================================================= -->
+  <!-- TAB 2: SPEECH CLEANER                                             -->
+  <!-- ================================================================= -->
+  <div class="tab-view scrollable-tab hidden" id="tab-view-cleaner">
+    <div class="wrap">
+      <section class="step" id="cleaner-step1">
+        <div class="step-head">
+          <span class="step-num">01</span>
+          <div>
+            <h2>Upload Talking-Head Video</h2>
+            <p class="step-desc">Drop any speech or interview recording. Whisper AI will transcribe and cut dead air & filler words word-by-word.</p>
+          </div>
+        </div>
+
+        <div class="dropzone" id="dz-clean-video">
+          <input type="file" id="input-clean-video" accept="video/*" hidden>
+          <div class="dz-icon">🎙️</div>
+          <div class="dz-label">Drop your video, or click to browse</div>
+          <div class="dz-filename" id="fn-clean-video"></div>
+        </div>
+      </section>
+
+      <section class="step disabled" id="cleaner-step2">
+        <div class="step-head">
+          <span class="step-num">02</span>
+          <div>
+            <h2>Speech Cleaning Settings</h2>
+            <p class="step-desc">Configure how aggressively to cut pauses and filler words.</p>
+          </div>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:14px;">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <label style="width:150px; color:var(--text-dim);">Whisper AI Model</label>
+            <div class="tactile-select-wrap" style="flex:1;">
+              <select id="sel-clean-model">
+                <option value="tiny">Tiny (Fastest)</option>
+                <option value="base" selected>Base (Recommended)</option>
+                <option value="small">Small (Most Accurate)</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="display:flex; align-items:center; gap:12px;">
+            <label style="width:150px; color:var(--text-dim);">Min Gap to Cut</label>
+            <input type="range" id="sl-clean-gap" min="0.1" max="2.0" step="0.1" value="0.4" style="flex:1;">
+            <span class="mono" id="val-clean-gap" style="width:48px; text-align:right; color:var(--accent);">0.4 s</span>
+          </div>
+
+          <div style="display:flex; align-items:center; gap:12px;">
+            <label style="width:150px; color:var(--text-dim);">Word Padding</label>
+            <input type="range" id="sl-clean-padding" min="0.0" max="0.3" step="0.01" value="0.08" style="flex:1;">
+            <span class="mono" id="val-clean-padding" style="width:48px; text-align:right; color:var(--accent);">0.08 s</span>
+          </div>
+
+          <label class="checkbox">
+            <input type="checkbox" id="cb-clean-fillers" checked>
+            Remove filler words ("um", "uh", "like", "you know")
+          </label>
+
+          <div>
+            <button id="btn-clean-run" class="btn btn-primary">✂️ Process Speech</button>
+          </div>
+        </div>
+
+        <div id="clean-status" class="status hidden"></div>
+      </section>
+
+      <section class="step disabled" id="cleaner-step3">
+        <div class="step-head">
+          <span class="step-num">03</span>
+          <div>
+            <h2>Cleaned Result & DaVinci Timeline</h2>
+            <p class="step-desc">Preview the tightened video or import the EDL into DaVinci Resolve.</p>
+          </div>
+        </div>
+
+        <div id="clean-result-area" class="hidden">
+          <div class="stat-grid" id="clean-stat-grid"></div>
+          <div style="margin-top:16px;">
+            <video id="clean-preview" controls style="max-height:420px; width:100%; background:#000; border-radius:6px;"></video>
+            <div style="display:flex; gap:10px; margin-top:12px;">
+              <a id="btn-clean-download" class="btn btn-primary" download="cleaned.mp4" style="flex:1; text-decoration:none;">Download Cleaned MP4 ↓</a>
+              <a id="btn-clean-edl" class="btn btn-secondary" download="timeline.edl" style="flex:1; text-decoration:none;">Download DaVinci Timeline (.edl) ↓</a>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
+  </div>
 
-    <div class="format-grid">
-      <label class="checkbox"><input type="checkbox" class="fmt" value="9:16" checked> <span>9:16</span> Reels · TikTok · Shorts</label>
-      <label class="checkbox"><input type="checkbox" class="fmt" value="1:1" checked> <span>1:1</span> Feed</label>
-      <label class="checkbox"><input type="checkbox" class="fmt" value="4:5"> <span>4:5</span> Portrait feed</label>
-      <label class="checkbox"><input type="checkbox" class="fmt" value="16:9"> <span>16:9</span> YouTube · Site</label>
-      <label class="checkbox"><input type="checkbox" class="fmt" value="edl" checked> <span style="background:var(--accent-grad); color:#fff; border:none; padding: 2px 6px; border-radius: 4px;">EDL</span> DaVinci Resolve Timeline</label>
+  <!-- ================================================================= -->
+  <!-- TAB 3: MEDIA SORTER                                               -->
+  <!-- ================================================================= -->
+  <div class="tab-view scrollable-tab hidden" id="tab-view-sorter">
+    <div class="wrap">
+      <section class="step">
+        <div class="step-head">
+          <span class="step-num">01</span>
+          <div>
+            <h2>Zero-Shot AI Media Sorter</h2>
+            <p class="step-desc">Pick a folder of raw videos on your Mac. OpenAI CLIP Vision will analyze each clip and sort it into category subfolders.</p>
+          </div>
+        </div>
+
+        <div class="controls" style="justify-content:flex-start;">
+          <button id="btn-sort-pick-folder" class="btn btn-secondary">📁 Pick Mac Folder</button>
+          <span id="sort-folder-display" class="mono" style="font-size:12px; color:var(--accent);">No folder selected</span>
+        </div>
+
+        <div style="margin-top:16px;">
+          <label style="font-size:12px; color:var(--text-dim); display:block; margin-bottom:6px;">Categories to sort by (comma-separated)</label>
+          <input type="text" id="sort-categories" class="mono tactile-input" value="food,kitchen,interior,person" style="width:100%;">
+        </div>
+
+        <div class="controls" style="margin-top:16px;">
+          <button id="btn-sort-run" class="btn btn-primary" disabled>🗂️ Sort Media into Folders</button>
+        </div>
+
+        <div id="sort-status" class="status hidden"></div>
+      </section>
     </div>
+  </div>
 
-    <div class="optional-uploads">
-      <div class="upload-inline">
-        <label for="input-logo">Logo (transparent PNG)</label>
-        <input type="file" id="input-logo" accept="image/png">
-        <span class="mono fn" id="fn-logo"></span>
-      </div>
-      <div class="upload-inline">
-        <label for="input-srt">Captions (.srt)</label>
-        <input type="file" id="input-srt" accept=".srt">
-        <span class="mono fn" id="fn-srt"></span>
-      </div>
+  <!-- ================================================================= -->
+  <!-- TAB 4: JOB HISTORY                                                -->
+  <!-- ================================================================= -->
+  <div class="tab-view scrollable-tab hidden" id="tab-view-history">
+    <div class="wrap">
+      <section class="step">
+        <div class="step-head">
+          <span class="step-num">🕒</span>
+          <div>
+            <h2>Job History & Storage</h2>
+            <p class="step-desc">Access previous builds, timelines, and manage disk usage.</p>
+          </div>
+        </div>
+
+        <div class="stat-grid" style="margin-bottom:16px;">
+          <div class="stat-box">
+            <span class="stat-val" id="hist-total-jobs">0</span>
+            <span class="stat-label">Total Jobs</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-val" id="hist-total-size">0 Bytes</span>
+            <span class="stat-label">Disk Used</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-val" id="hist-disk-free">Loading...</span>
+            <span class="stat-label">Available</span>
+          </div>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <label class="checkbox"><input type="checkbox" id="hist-select-all"> Select All</label>
+          <button id="btn-hist-delete" class="btn btn-danger btn-sm" disabled>🗑️ Delete Selected</button>
+        </div>
+
+        <div id="hist-job-list"></div>
+      </section>
     </div>
+  </div>
 
-    <div class="controls">
-      <button id="btn-export" class="btn btn-primary">Export Videos</button>
-    </div>
-
-    <div id="export-status" class="status hidden"></div>
-
-    <div id="export-result" class="result hidden export-grid"></div>
-  </section>
-
-  <footer>
-    <span class="mono">job: <span id="job-id-display">—</span></span>
-  </footer>
-
-</div>
-<script src="/static/app.js?v=18"></script>
+<script src="/static/app.js?v=30"></script>
 </body>
 </html>

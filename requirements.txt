@@ -1,9 +1,7 @@
-scenedetect[opencv]>=0.6
 flask>=3.0
-
-# Optional — only needed for content-aware tagging (tag_content.py / the
-# "Smart-match by content" option in the UI). Skip these if you never use
-# that feature; everything else in the pipeline runs fine without them.
+scenedetect[opencv]>=0.6
 torch>=2.0
 transformers>=4.40
 pillow>=10.0
+openai-whisper
+imageio-ffmpeg

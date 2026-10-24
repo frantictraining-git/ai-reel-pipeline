@@ -115,26 +115,36 @@ def api_analyze():
 def _resolve_clips_dir(jdir: Path):
     """Shared by /api/tag and /api/build: returns the clips folder, saving
     uploaded files into jdir/source_clips if no local_folder path was given.
-    Returns None if no clips were provided either way."""
+    Preserves exact original filenames so DaVinci Resolve relinks 100% cleanly."""
     local_folder = request.form.get("local_folder")
     if local_folder and Path(local_folder).is_dir():
+        (jdir / "clips_folder.txt").write_text(str(Path(local_folder).resolve()))
         return Path(local_folder)
 
+    clip_files = [f for f in request.files.getlist("clips") if f and f.filename]
     clips_dir = jdir / "source_clips"
+
+    if not clip_files:
+        # If clips were already uploaded or a local folder was saved earlier for this job, reuse it!
+        saved_folder_file = jdir / "clips_folder.txt"
+        if saved_folder_file.exists():
+            saved_p = Path(saved_folder_file.read_text().strip())
+            if saved_p.is_dir():
+                return saved_p
+        if clips_dir.exists() and any(clips_dir.iterdir()):
+            return clips_dir
+        return None
+
     if clips_dir.exists():
         shutil.rmtree(clips_dir)
     clips_dir.mkdir()
 
-    clip_files = request.files.getlist("clips")
-    if not clip_files:
-        return None
-
     for i, f in enumerate(clip_files):
-        if not f.filename:
-            continue
-        suffix = Path(f.filename).suffix or ".mp4"
-        secure_name = f"{secure_filename(Path(f.filename).stem)}{suffix}"
-        f.save(clips_dir / secure_name)
+        raw_name = Path(f.filename).name.replace("/", "_").replace("\\", "_")
+        if not raw_name or raw_name.startswith("."):
+            suffix = Path(f.filename).suffix or ".mp4"
+            raw_name = f"clip_{i:03d}{suffix}"
+        f.save(clips_dir / raw_name)
 
     return clips_dir
 
@@ -255,19 +265,373 @@ def api_build():
         if tags_path.exists():
             clip_tags = json.loads(tags_path.read_text())
 
+    shot_plan = None
+    shot_plan_raw = request.form.get("shot_plan")
+    if shot_plan_raw:
+        try:
+            shot_plan = json.loads(shot_plan_raw)
+        except json.JSONDecodeError:
+            pass
+
+    crop_mode = request.form.get("crop_mode", "center")
+
     output_path = jdir / "built_reel.mp4"
     try:
         ref_matches = list(jdir.glob("reference.*"))
         ref_path = str(ref_matches[0]) if ref_matches else None
-        build(str(rhythm_path), str(clips_dir), str(output_path), width, height, fps, keep_audio,
-              inpoints, clip_tags, progress_file=str(jdir / 'progress.json'), overlay_audio=overlay_audio, reference_path=ref_path)
+        plan_out = build(
+            str(rhythm_path),
+            str(clips_dir),
+            str(output_path),
+            width,
+            height,
+            fps,
+            keep_audio,
+            inpoints,
+            clip_tags,
+            progress_file=str(jdir / "progress.json"),
+            overlay_audio=overlay_audio,
+            reference_path=ref_path,
+            shot_plan=shot_plan,
+            crop_mode=crop_mode,
+        )
     except Exception as e:
         return jsonify({"error": f"Build failed: {e}"}), 500
+
+    available_clips = sorted(
+        [p.name for p in Path(clips_dir).iterdir() if p.suffix.lower() in {".mp4", ".mov", ".m4v", ".mkv", ".avi", ".webm"} and not p.name.startswith(".")]
+    )
 
     return jsonify({
         "job_id": job_id,
         "video_url": f"/api/media/{job_id}/built_reel.mp4",
+        "shot_plan": plan_out,
+        "available_clips": available_clips,
     })
+
+
+@app.route("/api/job_state/<job_id>")
+def api_job_state(job_id):
+    jdir = job_dir(job_id)
+    if not jdir.exists():
+        return jsonify({"error": "Not found"}), 404
+    meta = {}
+    if (jdir / "meta.json").exists():
+        try:
+            meta = json.loads((jdir / "meta.json").read_text())
+        except Exception:
+            pass
+    job_name = meta.get("job_name") or meta.get("filename") or job_id
+    rhythm = json.loads((jdir / "rhythm.json").read_text()) if (jdir / "rhythm.json").exists() else None
+    shot_plan = json.loads((jdir / "shot_plan.json").read_text()) if (jdir / "shot_plan.json").exists() else []
+    built_exists = (jdir / "built_reel.mp4").exists()
+    local_folder = (jdir / "clips_folder.txt").read_text().strip() if (jdir / "clips_folder.txt").exists() else None
+    folder_missing = bool(local_folder and not Path(local_folder).is_dir())
+    exts = {".mp4", ".mov", ".m4v", ".mkv", ".avi", ".webm"}
+    available_clips = []
+    if local_folder and Path(local_folder).is_dir():
+        available_clips = sorted([p.name for p in Path(local_folder).iterdir() if p.suffix.lower() in exts and not p.name.startswith(".")])
+    elif (jdir / "source_clips").is_dir():
+        available_clips = sorted([p.name for p in (jdir / "source_clips").iterdir() if p.suffix.lower() in exts and not p.name.startswith(".")])
+    elif shot_plan:
+        available_clips = sorted(list({s.get("clip") for s in shot_plan if s.get("clip")}))
+    return jsonify({
+        "job_id": job_id,
+        "job_name": job_name,
+        "settings": meta.get("settings", {"width": 1080, "height": 1920, "fps": 30}),
+        "rhythm": rhythm,
+        "shot_plan": shot_plan,
+        "built_exists": built_exists,
+        "video_url": f"/api/media/{job_id}/built_reel.mp4" if built_exists else None,
+        "local_folder": local_folder,
+        "folder_missing": folder_missing,
+        "available_clips": available_clips,
+        "tagged": (jdir / "clip_tags.json").exists(),
+    })
+
+
+@app.route("/api/job_rename", methods=["POST"])
+def api_job_rename():
+    import datetime
+    data = request.get_json(silent=True) or request.form
+    job_id = data.get("job_id")
+    new_name = (data.get("job_name") or "").strip()
+    if not job_id or not new_name:
+        return jsonify({"error": "Missing job_id or job_name"}), 400
+    jdir = job_dir(job_id)
+    meta_path = jdir / "meta.json"
+    meta = {}
+    if meta_path.exists():
+        try:
+            meta = json.loads(meta_path.read_text())
+        except Exception:
+            pass
+    meta["job_id"] = job_id
+    meta["job_name"] = new_name
+    meta["filename"] = new_name
+    if "timestamp" not in meta:
+        meta["timestamp"] = datetime.datetime.now().isoformat()
+    meta_path.write_text(json.dumps(meta, indent=2))
+    return jsonify({"job_id": job_id, "job_name": new_name})
+
+
+@app.route("/api/project_save", methods=["POST"])
+def api_project_save():
+    import datetime, re
+    data = request.get_json(silent=True) or {}
+    job_id = data.get("job_id")
+    if not job_id:
+        return jsonify({"error": "No active job to save"}), 400
+    jdir = job_dir(job_id)
+
+    meta_path = jdir / "meta.json"
+    meta = {}
+    if meta_path.exists():
+        try:
+            meta = json.loads(meta_path.read_text())
+        except Exception:
+            pass
+
+    job_name = (data.get("job_name") or meta.get("job_name") or meta.get("filename") or job_id).strip()
+    settings = data.get("settings") or meta.get("settings") or {"width": 1080, "height": 1920, "fps": 30}
+    meta["job_id"] = job_id
+    meta["job_name"] = job_name
+    meta["filename"] = job_name
+    meta["settings"] = settings
+    meta["timestamp"] = datetime.datetime.now().isoformat()
+    meta_path.write_text(json.dumps(meta, indent=2))
+
+    shot_plan = data.get("shot_plan")
+    if shot_plan is not None:
+        (jdir / "shot_plan.json").write_text(json.dumps(shot_plan, indent=2))
+    elif (jdir / "shot_plan.json").exists():
+        shot_plan = json.loads((jdir / "shot_plan.json").read_text())
+    else:
+        shot_plan = []
+
+    local_folder = data.get("local_folder")
+    if local_folder:
+        (jdir / "clips_folder.txt").write_text(str(local_folder).strip())
+    elif (jdir / "clips_folder.txt").exists():
+        local_folder = (jdir / "clips_folder.txt").read_text().strip()
+
+    rhythm = json.loads((jdir / "rhythm.json").read_text()) if (jdir / "rhythm.json").exists() else None
+    clip_tags = json.loads((jdir / "clip_tags.json").read_text()) if (jdir / "clip_tags.json").exists() else None
+
+    proj_payload = {
+        "reel_pipeline_project": "1.0",
+        "job_id": job_id,
+        "job_name": job_name,
+        "saved_at": meta["timestamp"],
+        "settings": settings,
+        "local_folder": local_folder,
+        "rhythm": rhythm,
+        "shot_plan": shot_plan,
+        "clip_tags": clip_tags,
+    }
+    proj_file = jdir / "project.reelproj"
+    proj_file.write_text(json.dumps(proj_payload, indent=2))
+
+    safe_name = re.sub(r"[^a-zA-Z0-9_\-]+", "_", job_name).strip("_") or job_id
+    return jsonify({
+        "job_id": job_id,
+        "job_name": job_name,
+        "download_url": f"/api/project_download/{job_id}?name={safe_name}.reelproj",
+        "filename": f"{safe_name}.reelproj",
+    })
+
+
+@app.route("/api/project_download/<job_id>")
+def api_project_download(job_id):
+    jdir = job_dir(job_id)
+    proj_file = jdir / "project.reelproj"
+    if not proj_file.exists():
+        return jsonify({"error": "Project file not found"}), 404
+    dl_name = request.args.get("name") or f"{job_id}.reelproj"
+    return send_file(proj_file, as_attachment=True, download_name=dl_name, mimetype="application/json")
+
+
+@app.route("/api/project_open", methods=["POST"])
+def api_project_open():
+    import datetime
+    f = request.files.get("project_file")
+    if not f or not f.filename:
+        return jsonify({"error": "No project file selected"}), 400
+    try:
+        payload = json.loads(f.read().decode("utf-8"))
+    except Exception as e:
+        return jsonify({"error": f"Invalid project file: {e}"}), 400
+
+    job_id = payload.get("job_id") or uuid.uuid4().hex[:12]
+    jdir = JOBS_DIR / job_id
+    jdir.mkdir(exist_ok=True)
+
+    job_name = payload.get("job_name") or Path(f.filename).stem
+    settings = payload.get("settings") or {"width": 1080, "height": 1920, "fps": 30}
+    meta = {
+        "job_id": job_id,
+        "job_name": job_name,
+        "filename": job_name,
+        "settings": settings,
+        "timestamp": payload.get("saved_at") or datetime.datetime.now().isoformat(),
+        "type": "Reel Pipeline",
+    }
+    (jdir / "meta.json").write_text(json.dumps(meta, indent=2))
+
+    if payload.get("rhythm"):
+        (jdir / "rhythm.json").write_text(json.dumps(payload["rhythm"], indent=2))
+    if payload.get("shot_plan") is not None:
+        (jdir / "shot_plan.json").write_text(json.dumps(payload["shot_plan"], indent=2))
+    if payload.get("clip_tags"):
+        (jdir / "clip_tags.json").write_text(json.dumps(payload["clip_tags"], indent=2))
+    if payload.get("local_folder"):
+        (jdir / "clips_folder.txt").write_text(str(payload["local_folder"]).strip())
+
+    return api_job_state(job_id)
+
+
+@app.route("/api/relink_folder", methods=["POST"])
+def api_relink_folder():
+    from urllib.parse import quote
+    data = request.get_json(silent=True) or request.form
+    job_id = data.get("job_id")
+    new_folder = (data.get("local_folder") or "").strip()
+    if not job_id or not new_folder:
+        return jsonify({"error": "Missing job_id or folder path"}), 400
+    new_folder_path = Path(new_folder)
+    if not new_folder_path.is_dir():
+        return jsonify({"error": f"Folder not found: {new_folder}"}), 400
+
+    jdir = job_dir(job_id)
+    old_folder = (jdir / "clips_folder.txt").read_text().strip() if (jdir / "clips_folder.txt").exists() else None
+    (jdir / "clips_folder.txt").write_text(str(new_folder_path.resolve()))
+
+    # Also update existing timeline.edl and timeline.fcpxml if present so Resolve relinks immediately
+    if old_folder:
+        edl_p = jdir / "timeline.edl"
+        if edl_p.exists():
+            txt = edl_p.read_text()
+            txt = txt.replace(str(Path(old_folder).resolve()), str(new_folder_path.resolve()))
+            txt = txt.replace(old_folder, str(new_folder_path.resolve()))
+            edl_p.write_text(txt)
+        fcpxml_p = jdir / "timeline.fcpxml"
+        if fcpxml_p.exists():
+            txt = fcpxml_p.read_text()
+            old_q = quote(str(Path(old_folder).resolve()))
+            new_q = quote(str(new_folder_path.resolve()))
+            txt = txt.replace(old_q, new_q)
+            fcpxml_p.write_text(txt)
+
+    return api_job_state(job_id)
+
+
+@app.route("/api/local_clips_info", methods=["POST"])
+def api_local_clips_info():
+    folder = request.form.get("local_folder")
+    if not folder or not Path(folder).is_dir():
+        return jsonify({"error": "Invalid folder"}), 400
+    exts = {".mp4", ".mov", ".m4v", ".mkv", ".avi", ".webm"}
+    clips = sorted(
+        [p.name for p in Path(folder).iterdir() if p.suffix.lower() in exts and not p.name.startswith(".")]
+    )
+    return jsonify({"clips": clips, "count": len(clips)})
+
+
+@app.route("/api/clip_preview/<job_id>/<path:clip_name>")
+def api_clip_preview(job_id, clip_name):
+    jdir = job_dir(job_id)
+    saved_folder_file = jdir / "clips_folder.txt"
+    if saved_folder_file.exists():
+        folder = Path(saved_folder_file.read_text().strip())
+        target = folder / clip_name
+        if target.exists():
+            return send_file(target, conditional=True)
+    target = jdir / "source_clips" / clip_name
+    if target.exists():
+        return send_file(target, conditional=True)
+    return jsonify({"error": "Clip not found"}), 404
+
+
+@app.route("/api/clip_thumb/<job_id>/<path:clip_name>")
+def api_clip_thumb(job_id, clip_name):
+    import hashlib, subprocess
+    from ffmpeg_utils import FFMPEG
+    jdir = job_dir(job_id)
+    target = None
+    saved_folder_file = jdir / "clips_folder.txt"
+    if saved_folder_file.exists():
+        folder = Path(saved_folder_file.read_text().strip())
+        cand = folder / clip_name
+        if cand.exists():
+            target = cand
+    if target is None:
+        cand = jdir / "source_clips" / clip_name
+        if cand.exists():
+            target = cand
+    if target is None:
+        return jsonify({"error": "Clip not found"}), 404
+
+    t = float(request.args.get("t", 0.0))
+    thumbs_dir = jdir / "thumbs"
+    thumbs_dir.mkdir(exist_ok=True)
+    key = hashlib.md5(f"{clip_name}_{t:.1f}".encode("utf-8")).hexdigest()[:12]
+    thumb_path = thumbs_dir / f"{key}.jpg"
+
+    if not thumb_path.exists():
+        cmd = [
+            FFMPEG, "-y",
+            "-ss", str(max(0.0, t)),
+            "-i", str(target),
+            "-frames:v", "1",
+            "-vf", "scale=240:-1",
+            "-q:v", "5",
+            "-loglevel", "error",
+            str(thumb_path),
+        ]
+        subprocess.run(cmd, check=False)
+        if not thumb_path.exists() and t > 0:
+            # Fallback to 0s if timestamp was past end of video
+            cmd[3] = "0"
+            subprocess.run(cmd, check=False)
+
+    if thumb_path.exists():
+        return send_file(thumb_path, mimetype="image/jpeg")
+    return jsonify({"error": "Failed to generate thumbnail"}), 500
+
+
+@app.route("/api/folder_thumb")
+def api_folder_thumb():
+    import hashlib, subprocess
+    from ffmpeg_utils import FFMPEG
+    folder = request.args.get("folder")
+    clip_name = request.args.get("clip")
+    if not folder or not clip_name:
+        return jsonify({"error": "Missing params"}), 400
+    target = Path(folder) / clip_name
+    if not target.exists():
+        return jsonify({"error": "Clip not found"}), 404
+
+    thumbs_dir = JOBS_DIR / "_folder_thumbs"
+    thumbs_dir.mkdir(exist_ok=True)
+    key = hashlib.md5(str(target.resolve()).encode("utf-8")).hexdigest()[:14]
+    thumb_path = thumbs_dir / f"{key}.jpg"
+
+    if not thumb_path.exists():
+        cmd = [
+            FFMPEG, "-y",
+            "-ss", "0.2",
+            "-i", str(target),
+            "-frames:v", "1",
+            "-vf", "scale=240:-1",
+            "-q:v", "5",
+            "-loglevel", "error",
+            str(thumb_path),
+        ]
+        subprocess.run(cmd, check=False)
+
+    if thumb_path.exists():
+        return send_file(thumb_path, mimetype="image/jpeg")
+    return jsonify({"error": "Failed to generate thumbnail"}), 500
 
 
 @app.route("/api/export", methods=["POST"])
@@ -283,6 +647,15 @@ def api_export():
 
     formats = request.form.get("formats", "9:16,1:1,16:9").split(",")
     logo_pos = request.form.get("logo_pos", "bottom-right")
+    container = request.form.get("container", "mp4").lower().strip()
+    if container not in ("mp4", "mov"):
+        container = "mp4"
+    codec = request.form.get("codec", "h264").lower().strip()
+    if codec not in ("h264", "h265"):
+        codec = "h264"
+    fps_val = float(request.form.get("fps", 30))
+    proj_w = int(request.form.get("width", 1080))
+    proj_h = int(request.form.get("height", 1920))
 
     logo_path = None
     logo_file = request.files.get("logo")
@@ -302,17 +675,23 @@ def api_export():
     results = []
     for fmt in formats:
         fmt = fmt.strip()
-        if fmt not in FORMAT_DIMS:
+        if fmt == "project":
+            w, h = proj_w, proj_h
+            safe_fmt = f"{w}x{h}"
+            label_fmt = f"{w}×{h}"
+        elif fmt in FORMAT_DIMS:
+            w, h = FORMAT_DIMS[fmt]
+            safe_fmt = fmt.replace(":", "x")
+            label_fmt = fmt
+        else:
             continue
-        w, h = FORMAT_DIMS[fmt]
-        safe_fmt = fmt.replace(":", "x")
-        out_path = exports_dir / f"reel_{safe_fmt}.mp4"
+        out_path = exports_dir / f"reel_{safe_fmt}_{codec}.{container}"
         try:
-            export_format(built, out_path, w, h, logo_path, logo_pos, srt_path)
+            export_format(built, out_path, w, h, logo_path, logo_pos, srt_path, codec=codec, fps=fps_val)
         except Exception as e:
             return jsonify({"error": f"Export failed on {fmt}: {e}"}), 500
         results.append({
-            "format": fmt,
+            "format": f"{label_fmt} · {codec.upper()} · {container.upper()}",
             "url": f"/api/media/{job_id}/exports/{out_path.name}",
             "filename": out_path.name,
         })
@@ -328,6 +707,8 @@ def api_media(job_id, filename):
         return jsonify({"error": "Invalid path"}), 400
     if not path.exists():
         return jsonify({"error": "Not found"}), 404
+    if path.suffix.lower() in {".edl", ".fcpxml"} or request.args.get("dl") == "1":
+        return send_file(path, as_attachment=True, download_name=path.name)
     return send_file(path, conditional=True)
 
 
@@ -461,33 +842,41 @@ def delete_jobs():
     return jsonify({"status": "success", "deleted": deleted})
 
 
-if __name__ == "__main__":
-    print("\nReel Pipeline running at http://localhost:5050\n")
-    app.run(host="127.0.0.1", port=5050, debug=False, threaded=True)
-
-
 @app.route("/api/sort_media", methods=["POST"])
 def api_sort_media():
     folder = request.form.get("folder")
     categories = request.form.get("categories", "")
+    force = request.form.get("force") == "true"
     cats = [c.strip() for c in categories.split(",") if c.strip()]
     if not folder or not cats:
         return jsonify({"error": "Missing folder or categories"}), 400
-        
+
+    from sort_media import sort_folder, check_existing
+
+    # Warn if category folders already have files in them
+    if not force:
+        check = check_existing(folder, cats)
+        if check["existing"]:
+            return jsonify({"warning": True, "existing": check["existing"]}), 200
+
     prog_file = JOBS_DIR / "sort_progress.json"
-    
+
+    # Clear stale progress file so the UI doesn't pick up the old "Done!" status
+    if prog_file.exists():
+        prog_file.unlink()
+
     import threading
-    from sort_media import sort_folder
-    
+
     def run_sort():
         try:
             sort_folder(folder, cats, str(prog_file))
         except Exception as e:
             with open(prog_file, "w") as f:
                 json.dump({"error": str(e)}, f)
-                
+
     threading.Thread(target=run_sort).start()
     return jsonify({"status": "started"})
+
 
 @app.route("/api/sort_progress")
 def api_sort_progress():
@@ -499,3 +888,15 @@ def api_sort_progress():
         except:
             pass
     return jsonify({"total": 0, "current": 0, "phase": ""})
+
+
+@app.route("/api/quit_app", methods=["POST"])
+def api_quit_app():
+    import subprocess
+    subprocess.Popen(["killall", "ReelPipelineRunner", "SwiftReelRunner"], stderr=subprocess.DEVNULL)
+    return jsonify({"status": "quitting"})
+
+
+if __name__ == "__main__":
+    print("\nSwift Reel running at http://localhost:5050\n")
+    app.run(host="127.0.0.1", port=5050, debug=False, threaded=True)

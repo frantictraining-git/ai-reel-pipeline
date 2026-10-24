@@ -71,8 +71,10 @@ def _load_model():
     _processor = CLIPProcessor.from_pretrained(model_name, cache_dir=str(MODELS_DIR))
     _model.eval()
 
-    if torch.backends.mps.is_available():
-        _model = _model.to("mps")  # Apple Silicon GPU — much faster than CPU on a Mac
+    if torch.cuda.is_available():
+        _model = _model.to("cuda") # Linux/Windows NVIDIA GPU
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        _model = _model.to("mps")  # Apple Silicon GPU
     return _model, _processor
 
 
