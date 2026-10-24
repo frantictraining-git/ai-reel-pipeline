@@ -46,7 +46,7 @@ from typing import Optional
 
 def export_format(src: Path, out_path: Path, w: int, h: int, logo: Optional[Path],
                    logo_pos: str, srt: Optional[Path],
-                   codec: str = "h264", fps: Optional[float] = None):
+                   codec: str = "h264", fps: Optional[float] = None, hdr: bool = False):
     filters = []
     inputs = ["-i", str(src)]
 
@@ -79,7 +79,18 @@ def export_format(src: Path, out_path: Path, w: int, h: int, logo: Optional[Path
 
     filter_complex = ";".join(filters)
 
-    if codec.lower() in ("h265", "hevc", "libx265"):
+    if hdr:
+        vcodec_args = [
+            "-c:v", "libx265",
+            "-preset", "fast",
+            "-crf", "20",
+            "-pix_fmt", "yuv420p10le",
+            "-tag:v", "hvc1",
+            "-color_primaries", "bt2020",
+            "-color_trc", "arib-std-b67",
+            "-colorspace", "bt2020nc",
+        ]
+    elif codec.lower() in ("h265", "hevc", "libx265"):
         vcodec_args = ["-c:v", "libx265", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p", "-tag:v", "hvc1"]
     else:
         vcodec_args = ["-c:v", "libx264", "-preset", "fast", "-crf", "18", "-pix_fmt", "yuv420p"]

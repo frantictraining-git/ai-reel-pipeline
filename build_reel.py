@@ -156,7 +156,9 @@ def build(
     lut_path: str = None,
     custom_audio_path: str = None,
     audio_in: float = 0.0,
+    audio_duration: float = 0.0,
     audio_volume: float = 1.0,
+    hdr_output: bool = False,
 ):
     rhythm = json.loads(Path(rhythm_path).read_text())
     shots = rhythm["shots"]
@@ -392,15 +394,25 @@ def build(
             str(use_duration),
             "-vf",
             vf,
-            "-c:v",
-            "libx264",
-            "-preset",
-            "fast",
-            "-crf",
-            "18",
-            "-pix_fmt",
-            "yuv420p",
         ]
+        if hdr_output:
+            cmd += [
+                "-c:v", "libx265",
+                "-preset", "fast",
+                "-crf", "20",
+                "-pix_fmt", "yuv420p10le",
+                "-tag:v", "hvc1",
+                "-color_primaries", "bt2020",
+                "-color_trc", "arib-std-b67",
+                "-colorspace", "bt2020nc",
+            ]
+        else:
+            cmd += [
+                "-c:v", "libx264",
+                "-preset", "fast",
+                "-crf", "18",
+                "-pix_fmt", "yuv420p",
+            ]
         if keep_audio:
             cmd += ["-c:a", "aac", "-b:a", "192k"]
         else:
@@ -465,6 +477,8 @@ def build(
         mixed_out = Path(output).with_name("mixed_out.mp4")
         vol = max(0.0, min(3.0, float(audio_volume)))
         a_in = max(0.0, float(audio_in))
+        a_dur = float(audio_duration) if audio_duration and float(audio_duration) > 0.1 else 0.0
+        atrim_part = f"atrim=0:{a_dur:.2f},asetpts=PTS-STARTPTS," if a_dur > 0 else ""
         if keep_audio:
             mix_cmd = [
                 FFMPEG,
@@ -476,7 +490,7 @@ def build(
                 "-i",
                 str(audio_source),
                 "-filter_complex",
-                f"[1:a]volume={vol:.2f}[a1];[0:a][a1]amix=inputs=2:duration=first:dropout_transition=2[a]",
+                f"[1:a]{atrim_part}volume={vol:.2f}[a1];[0:a][a1]amix=inputs=2:duration=first:dropout_transition=2[a]",
                 "-map",
                 "0:v",
                 "-map",
@@ -490,6 +504,8 @@ def build(
                 str(mixed_out),
             ]
         else:
+            total_seq_dur = sum(s["use_duration"] for s in shot_log)
+            pad_part = f",apad=whole_dur={total_seq_dur:.2f}" if (a_dur > 0 and a_dur < total_seq_dur) else ""
             mix_cmd = [
                 FFMPEG,
                 "-y",
@@ -500,7 +516,7 @@ def build(
                 "-i",
                 str(audio_source),
                 "-filter_complex",
-                f"[1:a]volume={vol:.2f}[a]",
+                f"[1:a]{atrim_part}volume={vol:.2f}{pad_part}[a]",
                 "-c:v",
                 "copy",
                 "-c:a",

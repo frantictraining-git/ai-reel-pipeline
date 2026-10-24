@@ -6,7 +6,7 @@
 <title>Swift Reel</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=32">
+<link rel="stylesheet" href="/static/style.css?v=33">
 </head>
 <body class="nle-body">
 
@@ -68,6 +68,15 @@
       <div class="file-menu-wrap" data-menu="edit">
         <button type="button" class="file-menu-btn">Edit ▾</button>
         <div class="file-dropdown">
+          <button type="button" class="file-menu-item" id="menu-undo">
+            <span>Undo</span>
+            <span class="shortcut">⌘Z</span>
+          </button>
+          <button type="button" class="file-menu-item" id="menu-redo">
+            <span>Redo</span>
+            <span class="shortcut">⇧⌘Z</span>
+          </button>
+          <div class="file-menu-divider"></div>
           <button type="button" class="file-menu-item" id="menu-rename-job">
             <span>Rename Current Job…</span>
             <span class="shortcut">⌘R</span>
@@ -102,13 +111,21 @@
             <span class="shortcut">⌥2</span>
           </button>
           <div class="file-menu-divider"></div>
-          <button type="button" class="file-menu-item" id="menu-clip-reframe-all">
-            <span>Apply Reframe to All Shots</span>
-            <span class="shortcut">⇧⌘F</span>
+          <button type="button" class="file-menu-item" id="menu-clip-copy-grade">
+            <span>Copy Clip Grade</span>
+            <span class="shortcut">⌥⌘C</span>
+          </button>
+          <button type="button" class="file-menu-item" id="menu-clip-paste-grade">
+            <span>Paste Clip Grade</span>
+            <span class="shortcut">⌥⌘V</span>
           </button>
           <button type="button" class="file-menu-item" id="menu-clip-grade-all">
             <span>Copy Color Grade to All Shots</span>
             <span class="shortcut">⇧⌘G</span>
+          </button>
+          <button type="button" class="file-menu-item" id="menu-clip-reframe-all">
+            <span>Apply Reframe to All Shots</span>
+            <span class="shortcut">⇧⌘F</span>
           </button>
           <div class="file-menu-divider"></div>
           <button type="button" class="file-menu-item" id="menu-clip-reset-reframe">
@@ -118,6 +135,10 @@
           <button type="button" class="file-menu-item" id="menu-clip-reset-grade">
             <span>Reset Clip Color Grade</span>
             <span class="shortcut">⌥G</span>
+          </button>
+          <button type="button" class="file-menu-item" id="menu-clip-master-reset-grade">
+            <span>Master Reset All Grading</span>
+            <span class="shortcut">⇧⌥G</span>
           </button>
           <button type="button" class="file-menu-item" id="menu-clip-load-lut">
             <span>Load 3D LUT (.cube)…</span>
@@ -553,9 +574,18 @@
                   <span class="mono fn" id="fn-lut" style="font-size:10.5px; color:var(--accent-bright);"></span>
                 </div>
 
-                <div style="display:flex; gap:6px; margin-bottom:6px;">
-                  <button type="button" id="btn-grade-all" class="btn btn-secondary btn-sm" style="flex:1;" title="Copy this shot's color grade & fade settings to all shots on the timeline">✨ Copy Grade to All</button>
-                  <button type="button" id="btn-reset-grade" class="btn btn-secondary btn-sm" title="Reset color adjustments for this shot">⟲ Reset</button>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:6px;">
+                  <button type="button" id="btn-copy-grade" class="btn btn-secondary btn-sm" title="Copy this clip's color grade & fade settings to clipboard">📋 Copy Grade</button>
+                  <button type="button" id="btn-paste-grade" class="btn btn-secondary btn-sm" disabled title="Paste copied color grade onto the selected clip">📥 Paste Grade</button>
+                </div>
+
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:6px;">
+                  <button type="button" id="btn-grade-all" class="btn btn-secondary btn-sm" title="Copy this shot's color grade & fade settings to all shots on the timeline">✨ Grade to All</button>
+                  <button type="button" id="btn-reset-grade" class="btn btn-secondary btn-sm" title="Reset color adjustments for this clip only">⟲ Reset Clip</button>
+                </div>
+
+                <div style="margin-bottom:6px;">
+                  <button type="button" id="btn-master-reset-grade" class="btn btn-danger btn-sm" style="width:100%;" title="Reset color grading, fades, and LUT across all shots in the timeline">🔄 Master Reset All Grading</button>
                 </div>
               </div>
 
@@ -584,7 +614,7 @@
             </div>
 
             <!-- Container & Video Codec Selectors -->
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px;">
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
               <div class="inspector-field" style="margin-bottom:0;">
                 <label><span>Container</span></label>
                 <div class="tactile-select-wrap">
@@ -602,6 +632,20 @@
                     <option value="h265">H.265 (HEVC)</option>
                   </select>
                 </div>
+              </div>
+            </div>
+
+            <!-- HDR 10-bit Output Toggle -->
+            <div class="upload-inline" style="margin-bottom:10px;">
+              <label class="checkbox" style="justify-content:space-between; width:100%;">
+                <span style="display:inline-flex; align-items:center; gap:7px;">
+                  <input type="checkbox" id="export-hdr">
+                  <strong style="color:#E7EDF2;">☀️ Enable 10-bit HDR Output</strong>
+                </span>
+                <span class="mono" style="font-size:9.5px; color:#B7C6D3;">BT.2020 · HLG</span>
+              </label>
+              <div id="hdr-codec-note" class="hidden" style="font-size:10px; color:#B7C6D3; margin-top:2px; line-height:1.35;">
+                ℹ️ 10-bit HDR requires <strong>H.265 (HEVC)</strong> (`yuv420p10le`, `hvc1`) — automatically selected.
               </div>
             </div>
 
@@ -646,6 +690,10 @@
           <span class="nle-badge" id="tl-hint">Drag clip edges [ ] left/right to trim · Drag body to reorder · Click to grade</span>
         </div>
         <div class="tl-tools-right">
+          <div class="arrow-btn-group">
+            <button type="button" id="btn-undo" class="btn btn-secondary btn-sm" disabled title="Undo (⌘Z — up to 10 steps)">↶ Undo</button>
+            <button type="button" id="btn-redo" class="btn btn-secondary btn-sm" disabled title="Redo (⇧⌘Z — up to 10 steps)">↷ Redo</button>
+          </div>
           <input type="file" id="input-custom-audio" accept="audio/*,video/*" hidden>
           <button type="button" id="btn-add-audio" class="btn btn-secondary btn-sm" title="Add or replace the A1 Audio Track with any MP3, WAV, M4A, or video file">🎵 + Add Audio Track</button>
           <button type="button" id="btn-clear-audio" class="btn btn-secondary btn-sm hidden" title="Remove custom audio track and revert to reference audio">🔇 Clear Audio</button>
@@ -679,12 +727,12 @@
           <div class="tl-track-label audio-label">A1 · AUDIO</div>
           <div class="tl-audio-strip" id="tl-audio-strip">
             <div class="tl-audio-clip" id="tl-audio-clip">
-              <div class="tl-trim-handle left" id="tl-audio-trim-left" title="Drag right/left to trim Audio Start Offset">[</div>
+              <div class="tl-trim-handle left" id="tl-audio-trim-left" title="Drag left/right to trim Audio Start Offset">[</div>
               <div class="tl-audio-body">
                 <div class="tl-audio-title" id="tl-audio-title">🔊 Reference Audio Track (Synced)</div>
                 <div class="tl-audio-waveform"></div>
                 <div class="tl-audio-controls">
-                  <span class="mono" id="tl-audio-offset-label">Start: 0.0s</span>
+                  <span class="mono" id="tl-audio-offset-label">In: 0.0s · Len: Auto</span>
                   <label style="display:inline-flex; align-items:center; gap:5px; font-size:10px; color:var(--text-dim);">
                     <span>Vol</span>
                     <input type="range" id="tl-audio-vol" min="0" max="150" value="100" style="width:65px; height:6px;">
@@ -692,7 +740,7 @@
                   </label>
                 </div>
               </div>
-              <div class="tl-trim-handle right" title="Audio automatically trims to match sequence end">]</div>
+              <div class="tl-trim-handle right" id="tl-audio-trim-right" title="Drag left/right to change Audio Track Length / Out-Point">]</div>
             </div>
           </div>
         </div>
@@ -863,6 +911,6 @@
     </div>
   </div>
 
-<script src="/static/app.js?v=32"></script>
+<script src="/static/app.js?v=33"></script>
 </body>
 </html>

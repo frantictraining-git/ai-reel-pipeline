@@ -275,7 +275,9 @@ def api_build():
 
     crop_mode = request.form.get("crop_mode", "center")
     audio_in = float(request.form.get("audio_in", 0.0))
+    audio_duration = float(request.form.get("audio_duration", 0.0))
     audio_volume = float(request.form.get("audio_volume", 1.0))
+    hdr_output = request.form.get("hdr_output") == "true"
 
     # Optional 3D LUT (.cube / .3dl)
     if request.form.get("clear_lut") == "true":
@@ -325,7 +327,9 @@ def api_build():
             lut_path=lut_path,
             custom_audio_path=custom_audio_path,
             audio_in=audio_in,
+            audio_duration=audio_duration,
             audio_volume=audio_volume,
+            hdr_output=hdr_output,
         )
     except Exception as e:
         return jsonify({"error": f"Build failed: {e}"}), 500
@@ -700,6 +704,9 @@ def api_export():
     codec = request.form.get("codec", "h264").lower().strip()
     if codec not in ("h264", "h265"):
         codec = "h264"
+    hdr = request.form.get("hdr") == "true"
+    if hdr:
+        codec = "h265"
     fps_val = float(request.form.get("fps", 30))
     proj_w = int(request.form.get("width", 1080))
     proj_h = int(request.form.get("height", 1920))
@@ -732,13 +739,15 @@ def api_export():
             label_fmt = fmt
         else:
             continue
-        out_path = exports_dir / f"reel_{safe_fmt}_{codec}.{container}"
+        out_suffix = "_hdr" if hdr else ""
+        out_path = exports_dir / f"reel_{safe_fmt}_{codec}{out_suffix}.{container}"
         try:
-            export_format(built, out_path, w, h, logo_path, logo_pos, srt_path, codec=codec, fps=fps_val)
+            export_format(built, out_path, w, h, logo_path, logo_pos, srt_path, codec=codec, fps=fps_val, hdr=hdr)
         except Exception as e:
             return jsonify({"error": f"Export failed on {fmt}: {e}"}), 500
+        hdr_tag = " · 10-bit HDR" if hdr else ""
         results.append({
-            "format": f"{label_fmt} · {codec.upper()} · {container.upper()}",
+            "format": f"{label_fmt} · {codec.upper()}{hdr_tag} · {container.upper()}",
             "url": f"/api/media/{job_id}/exports/{out_path.name}",
             "filename": out_path.name,
         })

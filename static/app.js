@@ -27,8 +27,15 @@ let clearLutFlag = false;
 let customAudioFile = null;
 let clearCustomAudioFlag = false;
 let audioStartOffset = 0.0;
+let audioDurationSec = 0.0; // 0 = auto match video length
 let audioVolumePct = 100;
 let activeInspectorSubtab = "trim"; // "trim" | "color"
+let copiedGradeClipboard = null;
+
+// 10-Step Undo / Redo History Stacks
+const MAX_HISTORY_STEPS = 10;
+let undoStack = [];
+let redoStack = [];
 
 function defaultGrade() {
   return {
@@ -638,6 +645,8 @@ btnTag.addEventListener("click", async () => {
 const tlShotsStrip = $("tl-shots-strip");
 const tlRulerStrip = $("tl-ruler-strip");
 const tlSummary = $("tl-summary");
+const btnUndo = $("btn-undo");
+const btnRedo = $("btn-redo");
 const btnMoveLeft = $("btn-move-left");
 const btnMoveRight = $("btn-move-right");
 const btnRebuildOrder = $("btn-rebuild-order");
@@ -648,6 +657,7 @@ const btnAddAudio = $("btn-add-audio");
 const btnClearAudio = $("btn-clear-audio");
 const tlAudioClip = $("tl-audio-clip");
 const tlAudioTrimLeft = $("tl-audio-trim-left");
+const tlAudioTrimRight = $("tl-audio-trim-right");
 const tlAudioTitle = $("tl-audio-title");
 const tlAudioOffsetLabel = $("tl-audio-offset-label");
 const tlAudioVol = $("tl-audio-vol");
@@ -695,8 +705,86 @@ const numGradeFadeOut = $("num-grade-fadeout");
 const inputLut = $("input-lut");
 const fnLut = $("fn-lut");
 const btnClearLut = $("btn-clear-lut");
+const btnCopyGrade = $("btn-copy-grade");
+const btnPasteGrade = $("btn-paste-grade");
 const btnGradeAll = $("btn-grade-all");
 const btnResetGrade = $("btn-reset-grade");
+const btnMasterResetGrade = $("btn-master-reset-grade");
+
+// ---------- 10-Step Undo / Redo Engine ----------
+function captureEditorState() {
+  return JSON.stringify({
+    shotPlan,
+    selectedShotIdx,
+    audioStartOffset,
+    audioDurationSec,
+    audioVolumePct,
+  });
+}
+
+function updateUndoRedoUI() {
+  if (btnUndo) {
+    btnUndo.disabled = undoStack.length === 0;
+    btnUndo.title = undoStack.length ? `Undo (${undoStack.length} step${undoStack.length > 1 ? "s" : ""}) — ⌘Z` : "Nothing to Undo";
+  }
+  if (btnRedo) {
+    btnRedo.disabled = redoStack.length === 0;
+    btnRedo.title = redoStack.length ? `Redo (${redoStack.length} step${redoStack.length > 1 ? "s" : ""}) — ⇧⌘Z` : "Nothing to Redo";
+  }
+}
+
+function pushUndoState() {
+  if (!shotPlan || !shotPlan.length) return;
+  const snap = captureEditorState();
+  if (undoStack.length > 0 && undoStack[undoStack.length - 1] === snap) return;
+  undoStack.push(snap);
+  if (undoStack.length > MAX_HISTORY_STEPS) {
+    undoStack.shift();
+  }
+  redoStack = [];
+  updateUndoRedoUI();
+}
+
+function applySnapshotState(snapStr) {
+  try {
+    const parsed = JSON.parse(snapStr);
+    shotPlan = parsed.shotPlan || [];
+    selectedShotIdx = parsed.selectedShotIdx !== undefined ? parsed.selectedShotIdx : -1;
+    audioStartOffset = Number(parsed.audioStartOffset || 0);
+    audioDurationSec = Number(parsed.audioDurationSec || 0);
+    audioVolumePct = Number(parsed.audioVolumePct !== undefined ? parsed.audioVolumePct : 100);
+    if (tlAudioVol) tlAudioVol.value = audioVolumePct;
+    if (tlAudioVolLabel) tlAudioVolLabel.textContent = `${audioVolumePct}%`;
+    updateAudioTrackReadout();
+    renderTimelineTrack();
+    populateInspector();
+    if (selectedShotIdx >= 0) previewSelectedShotInMonitor(false);
+    markTimelineDirty();
+  } catch (e) {}
+}
+
+function performUndo() {
+  if (undoStack.length === 0) return;
+  const currentSnap = captureEditorState();
+  redoStack.push(currentSnap);
+  if (redoStack.length > MAX_HISTORY_STEPS) redoStack.shift();
+  const prevSnap = undoStack.pop();
+  applySnapshotState(prevSnap);
+  updateUndoRedoUI();
+}
+
+function performRedo() {
+  if (redoStack.length === 0) return;
+  const currentSnap = captureEditorState();
+  undoStack.push(currentSnap);
+  if (undoStack.length > MAX_HISTORY_STEPS) undoStack.shift();
+  const nextSnap = redoStack.pop();
+  applySnapshotState(nextSnap);
+  updateUndoRedoUI();
+}
+
+if (btnUndo) btnUndo.addEventListener("click", performUndo);
+if (btnRedo) btnRedo.addEventListener("click", performRedo);
 
 function switchInspectorSubtab(subtab) {
   activeInspectorSubtab = subtab === "color" ? "color" : "trim";
@@ -781,6 +869,7 @@ if (reframeViewport) {
       renderTimelineTrack();
     }
     if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+    pushUndoState();
     isDraggingReframe = true;
     dragStartX = e.clientX;
     dragStartY = e.clientY;
@@ -813,6 +902,7 @@ if (reframeViewport) {
     (e) => {
       if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
       e.preventDefault();
+      pushUndoState();
       const curZoom = Number(shotPlan[selectedShotIdx].zoom !== undefined ? shotPlan[selectedShotIdx].zoom : 100);
       const delta = e.deltaY < 0 ? 4 : -4;
       const nextZoom = Math.max(50, Math.min(300, curZoom + delta));
@@ -953,12 +1043,26 @@ window.addEventListener("mouseup", () => {
   }
 });
 
+function updateAudioTrackReadout() {
+  if (!tlAudioOffsetLabel) return;
+  const lenText = audioDurationSec > 0.1 ? `${audioDurationSec.toFixed(1)}s` : "Auto";
+  tlAudioOffsetLabel.textContent = `In: ${audioStartOffset.toFixed(1)}s · Len: ${lenText}`;
+}
+
 function renderTimecodeRuler(totalWidthPx, totalDurSec) {
   if (!tlRulerStrip) return;
   tlRulerStrip.innerHTML = "";
   const width = Math.max(480, totalWidthPx);
   tlRulerStrip.style.width = `${width}px`;
-  if (tlAudioClip) tlAudioClip.style.width = `${width}px`;
+  if (tlAudioClip) {
+    if (audioDurationSec > 0.1 && totalDurSec > 0.1) {
+      const ratio = Math.max(0.15, Math.min(2.0, audioDurationSec / totalDurSec));
+      tlAudioClip.style.width = `${Math.max(240, Math.round(width * ratio))}px`;
+    } else {
+      tlAudioClip.style.width = `${width}px`;
+    }
+  }
+  updateAudioTrackReadout();
 
   const stepSec = totalDurSec > 25 ? 2 : 1;
   const totalTicks = Math.max(5, Math.ceil((totalDurSec || 10) / stepSec));
@@ -1048,6 +1152,7 @@ function renderTimelineTrack() {
       handleEl.addEventListener("mousedown", (e) => {
         e.stopPropagation();
         e.preventDefault();
+        pushUndoState();
         selectedShotIdx = idx;
         populateInspector();
         activeEdgeTrim = {
@@ -1084,6 +1189,7 @@ function renderTimelineTrack() {
       card.classList.remove("drag-over");
       const fromIdx = parseInt(e.dataTransfer.getData("text/plain"), 10);
       if (!isNaN(fromIdx) && fromIdx !== idx) {
+        pushUndoState();
         const moved = shotPlan.splice(fromIdx, 1)[0];
         shotPlan.splice(idx, 0, moved);
         selectedShotIdx = idx;
@@ -1102,38 +1208,45 @@ function renderTimelineTrack() {
   btnMoveRight.disabled = selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length - 1;
 }
 
-// ---------- A1 Audio Track Controls (Add Audio, Trim Start Offset, Volume) ----------
+// ---------- A1 Audio Track Controls (Add Audio, Drag Left/Right to Trim Start & Length, Volume) ----------
 if (btnAddAudio && inputCustomAudio) {
   btnAddAudio.addEventListener("click", () => inputCustomAudio.click());
   inputCustomAudio.addEventListener("change", () => {
     const f = inputCustomAudio.files[0];
     if (!f) return;
+    pushUndoState();
     customAudioFile = f;
     clearCustomAudioFlag = false;
     audioStartOffset = 0.0;
+    audioDurationSec = 0.0;
     if (tlAudioTitle) tlAudioTitle.textContent = `🎵 Custom Audio: ${f.name}`;
-    if (tlAudioOffsetLabel) tlAudioOffsetLabel.textContent = `Start: 0.0s`;
+    updateAudioTrackReadout();
     if (btnClearAudio) btnClearAudio.classList.remove("hidden");
     const overlayCb = $("overlay-audio");
     if (overlayCb) overlayCb.checked = true;
+    renderTimelineTrack();
     markTimelineDirty();
   });
 }
 
 if (btnClearAudio) {
   btnClearAudio.addEventListener("click", () => {
+    pushUndoState();
     customAudioFile = null;
     clearCustomAudioFlag = true;
     audioStartOffset = 0.0;
+    audioDurationSec = 0.0;
     if (inputCustomAudio) inputCustomAudio.value = "";
     if (tlAudioTitle) tlAudioTitle.textContent = "🔊 Reference Audio Track (Synced)";
-    if (tlAudioOffsetLabel) tlAudioOffsetLabel.textContent = "Start: 0.0s";
+    updateAudioTrackReadout();
     btnClearAudio.classList.add("hidden");
+    renderTimelineTrack();
     markTimelineDirty();
   });
 }
 
 if (tlAudioVol) {
+  tlAudioVol.addEventListener("mousedown", () => pushUndoState());
   tlAudioVol.addEventListener("input", () => {
     audioVolumePct = parseInt(tlAudioVol.value, 10) || 100;
     if (tlAudioVolLabel) tlAudioVolLabel.textContent = `${audioVolumePct}%`;
@@ -1141,29 +1254,74 @@ if (tlAudioVol) {
   });
 }
 
-let isTrimmingAudio = false;
+let activeAudioTrimSide = null; // 'left' | 'right'
 let audioTrimStartX = 0;
 let audioOrigOffset = 0;
+let audioOrigDur = 0;
+let audioOrigWidthPx = 480;
 
 if (tlAudioTrimLeft) {
   tlAudioTrimLeft.addEventListener("mousedown", (e) => {
     e.stopPropagation();
     e.preventDefault();
-    isTrimmingAudio = true;
+    pushUndoState();
+    activeAudioTrimSide = "left";
     audioTrimStartX = e.clientX;
     audioOrigOffset = audioStartOffset;
-  });
-  window.addEventListener("mousemove", (e) => {
-    if (!isTrimmingAudio) return;
-    const dx = e.clientX - audioTrimStartX;
-    audioStartOffset = Math.max(0, Number((audioOrigOffset + dx / 60.0).toFixed(1)));
-    if (tlAudioOffsetLabel) tlAudioOffsetLabel.textContent = `Start: ${audioStartOffset.toFixed(1)}s`;
-    markTimelineDirty();
-  });
-  window.addEventListener("mouseup", () => {
-    isTrimmingAudio = false;
+    const totalSeqDur = shotPlan.reduce((acc, s) => acc + Number(s.duration || 0), 0) || 10.0;
+    audioOrigDur = audioDurationSec > 0.1 ? audioDurationSec : totalSeqDur;
+    audioOrigWidthPx = tlAudioClip ? tlAudioClip.getBoundingClientRect().width : 480;
   });
 }
+
+if (tlAudioTrimRight) {
+  tlAudioTrimRight.addEventListener("mousedown", (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    pushUndoState();
+    activeAudioTrimSide = "right";
+    audioTrimStartX = e.clientX;
+    const totalSeqDur = shotPlan.reduce((acc, s) => acc + Number(s.duration || 0), 0) || 10.0;
+    audioOrigDur = audioDurationSec > 0.1 ? audioDurationSec : totalSeqDur;
+    audioOrigWidthPx = tlAudioClip ? tlAudioClip.getBoundingClientRect().width : 480;
+  });
+}
+
+window.addEventListener("mousemove", (e) => {
+  if (!activeAudioTrimSide) return;
+  const dx = e.clientX - audioTrimStartX;
+  const totalSeqDur = shotPlan.reduce((acc, s) => acc + Number(s.duration || 0), 0) || 10.0;
+  const pxPerSec = Math.max(40, (tlRulerStrip ? tlRulerStrip.getBoundingClientRect().width : 600) / totalSeqDur);
+
+  if (activeAudioTrimSide === "left") {
+    // Dragging left edge '[' adjusts Audio Start Offset and shrinks/grows length
+    const deltaSec = dx / pxPerSec;
+    const newOffset = Math.max(0, Number((audioOrigOffset + deltaSec).toFixed(1)));
+    const actualDelta = newOffset - audioOrigOffset;
+    audioStartOffset = newOffset;
+    audioDurationSec = Math.max(0.5, Number((audioOrigDur - actualDelta).toFixed(1)));
+    if (tlAudioClip) {
+      const nextW = Math.max(240, Math.round(audioOrigWidthPx - dx));
+      tlAudioClip.style.width = `${nextW}px`;
+    }
+  } else if (activeAudioTrimSide === "right") {
+    // Dragging right edge ']' adjusts Audio Track Length / Out-Point
+    const deltaSec = dx / pxPerSec;
+    audioDurationSec = Math.max(0.5, Number((audioOrigDur + deltaSec).toFixed(1)));
+    if (tlAudioClip) {
+      const nextW = Math.max(240, Math.round(audioOrigWidthPx + dx));
+      tlAudioClip.style.width = `${nextW}px`;
+    }
+  }
+  updateAudioTrackReadout();
+  markTimelineDirty();
+});
+
+window.addEventListener("mouseup", () => {
+  if (activeAudioTrimSide) {
+    activeAudioTrimSide = null;
+  }
+});
 
 function markTimelineDirty() {
   timelineDirty = true;
@@ -1252,6 +1410,11 @@ function populateInspector() {
 // Wire Grading Sliders & Controls
 function wireGradeSlider(sliderEl, valEl, key, isPct = false) {
   if (!sliderEl) return;
+  sliderEl.addEventListener("mousedown", () => {
+    if (selectedShotIdx >= 0 && selectedShotIdx < shotPlan.length) {
+      pushUndoState();
+    }
+  });
   sliderEl.addEventListener("input", () => {
     if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
     const v = parseInt(sliderEl.value, 10) || 0;
@@ -1281,6 +1444,7 @@ wireGradeSlider(slGradeVignette, valGradeVignette, "vignette", true);
 if (selGradeCurve) {
   selGradeCurve.addEventListener("change", () => {
     if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+    pushUndoState();
     const g = ensureShotGrade(shotPlan[selectedShotIdx]);
     g.curve = selGradeCurve.value || "none";
     showMonitorTab("source");
@@ -1293,6 +1457,7 @@ if (selGradeCurve) {
 if (numGradeFadeIn) {
   numGradeFadeIn.addEventListener("change", () => {
     if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+    pushUndoState();
     const g = ensureShotGrade(shotPlan[selectedShotIdx]);
     g.fade_in = Math.max(0, parseFloat(numGradeFadeIn.value) || 0);
     renderTimelineTrack();
@@ -1303,6 +1468,7 @@ if (numGradeFadeIn) {
 if (numGradeFadeOut) {
   numGradeFadeOut.addEventListener("change", () => {
     if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+    pushUndoState();
     const g = ensureShotGrade(shotPlan[selectedShotIdx]);
     g.fade_out = Math.max(0, parseFloat(numGradeFadeOut.value) || 0);
     renderTimelineTrack();
@@ -1333,9 +1499,56 @@ if (btnClearLut) {
   });
 }
 
+function copySelectedClipGrade() {
+  if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+  copiedGradeClipboard = JSON.parse(JSON.stringify(ensureShotGrade(shotPlan[selectedShotIdx])));
+  if (btnPasteGrade) {
+    btnPasteGrade.disabled = false;
+    btnPasteGrade.title = `Paste copied grade from Shot #${String(selectedShotIdx + 1).padStart(2, "0")}`;
+  }
+  setStatus(buildStatus, `📋 Copied grade from Shot #${String(selectedShotIdx + 1).padStart(2, "0")}. Select any shot and click Paste Grade.`, "success");
+}
+
+function pasteGradeToSelectedClip() {
+  if (!copiedGradeClipboard || selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+  pushUndoState();
+  shotPlan[selectedShotIdx].grade = JSON.parse(JSON.stringify(copiedGradeClipboard));
+  populateGradingControls(shotPlan[selectedShotIdx]);
+  showMonitorTab("source");
+  applyGradeFilterToPreview();
+  renderTimelineTrack();
+  markTimelineDirty();
+  setStatus(buildStatus, `📥 Pasted grade onto Shot #${String(selectedShotIdx + 1).padStart(2, "0")}!`, "success");
+}
+
+function masterResetAllGrading() {
+  if (!shotPlan || !shotPlan.length) return;
+  pushUndoState();
+  shotPlan.forEach((s) => {
+    s.grade = defaultGrade();
+  });
+  lutFile = null;
+  clearLutFlag = true;
+  if (inputLut) inputLut.value = "";
+  if (fnLut) fnLut.textContent = "";
+  if (btnClearLut) btnClearLut.classList.add("hidden");
+  if (selectedShotIdx >= 0 && selectedShotIdx < shotPlan.length) {
+    populateGradingControls(shotPlan[selectedShotIdx]);
+  }
+  applyGradeFilterToPreview();
+  renderTimelineTrack();
+  markTimelineDirty();
+  setStatus(buildStatus, "🔄 Master Reset: All clip grading, fades & LUT cleared across the timeline.", "success");
+}
+
+if (btnCopyGrade) btnCopyGrade.addEventListener("click", copySelectedClipGrade);
+if (btnPasteGrade) btnPasteGrade.addEventListener("click", pasteGradeToSelectedClip);
+if (btnMasterResetGrade) btnMasterResetGrade.addEventListener("click", masterResetAllGrading);
+
 if (btnResetGrade) {
   btnResetGrade.addEventListener("click", () => {
     if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+    pushUndoState();
     shotPlan[selectedShotIdx].grade = defaultGrade();
     populateGradingControls(shotPlan[selectedShotIdx]);
     applyGradeFilterToPreview();
@@ -1347,6 +1560,7 @@ if (btnResetGrade) {
 if (btnGradeAll) {
   btnGradeAll.addEventListener("click", () => {
     if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+    pushUndoState();
     const srcGrade = JSON.parse(JSON.stringify(ensureShotGrade(shotPlan[selectedShotIdx])));
     shotPlan.forEach((s) => {
       s.grade = JSON.parse(JSON.stringify(srcGrade));
@@ -1360,6 +1574,7 @@ if (btnGradeAll) {
 if (inspClipSelect) {
   inspClipSelect.addEventListener("change", () => {
     if (selectedShotIdx < 0) return;
+    pushUndoState();
     shotPlan[selectedShotIdx].clip = inspClipSelect.value;
     shotPlan[selectedShotIdx].in_point = 0;
     inspInpoint.value = "0.00";
@@ -1371,6 +1586,9 @@ if (inspClipSelect) {
 }
 
 if (inspInpointSlider) {
+  inspInpointSlider.addEventListener("mousedown", () => {
+    if (selectedShotIdx >= 0) pushUndoState();
+  });
   inspInpointSlider.addEventListener("input", () => {
     if (selectedShotIdx < 0) return;
     const val = parseFloat(inspInpointSlider.value) || 0;
@@ -1387,6 +1605,7 @@ if (inspInpointSlider) {
 if (inspInpoint) {
   inspInpoint.addEventListener("change", () => {
     if (selectedShotIdx < 0) return;
+    pushUndoState();
     const val = Math.max(0, parseFloat(inspInpoint.value) || 0);
     inspInpointSlider.value = val;
     shotPlan[selectedShotIdx].in_point = val;
@@ -1399,6 +1618,7 @@ if (inspInpoint) {
 if (inspDuration) {
   inspDuration.addEventListener("change", () => {
     if (selectedShotIdx < 0) return;
+    pushUndoState();
     const val = Math.max(0.1, parseFloat(inspDuration.value) || 0.5);
     shotPlan[selectedShotIdx].duration = val;
     markTimelineDirty();
@@ -1407,6 +1627,9 @@ if (inspDuration) {
 }
 
 if (inspZoomSlider) {
+  inspZoomSlider.addEventListener("mousedown", () => {
+    if (selectedShotIdx >= 0) pushUndoState();
+  });
   inspZoomSlider.addEventListener("input", () => {
     if (selectedShotIdx < 0) return;
     const z = parseFloat(inspZoomSlider.value) || 100;
@@ -1423,6 +1646,7 @@ if (inspZoomSlider) {
 if (btnResetReframe) {
   btnResetReframe.addEventListener("click", () => {
     if (selectedShotIdx < 0) return;
+    pushUndoState();
     shotPlan[selectedShotIdx].zoom = 100;
     shotPlan[selectedShotIdx].pan_x = 0;
     shotPlan[selectedShotIdx].pan_y = 0;
@@ -1435,6 +1659,7 @@ if (btnResetReframe) {
 if (btnMoveLeft) {
   btnMoveLeft.addEventListener("click", () => {
     if (selectedShotIdx <= 0) return;
+    pushUndoState();
     const idx = selectedShotIdx;
     const temp = shotPlan[idx - 1];
     shotPlan[idx - 1] = shotPlan[idx];
@@ -1449,6 +1674,7 @@ if (btnMoveLeft) {
 if (btnMoveRight) {
   btnMoveRight.addEventListener("click", () => {
     if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length - 1) return;
+    pushUndoState();
     const idx = selectedShotIdx;
     const temp = shotPlan[idx + 1];
     shotPlan[idx + 1] = shotPlan[idx];
@@ -1495,7 +1721,10 @@ async function runBuild(useCustomShotPlan = false) {
   fd.append("smart_match", smartMatchCheckbox.checked && contentTagged ? "true" : "false");
   fd.append("crop_mode", "center");
   fd.append("audio_in", String(audioStartOffset || 0));
+  fd.append("audio_duration", String(audioDurationSec || 0));
   fd.append("audio_volume", String((audioVolumePct / 100.0).toFixed(2)));
+  const hdrCb = $("export-hdr");
+  fd.append("hdr_output", hdrCb && hdrCb.checked ? "true" : "false");
 
   if (lutFile) {
     fd.append("lut_file", lutFile);
@@ -1571,7 +1800,7 @@ btnBuild.addEventListener("click", () => runBuild(false));
 if (btnApplyTimeline) btnApplyTimeline.addEventListener("click", () => runBuild(true));
 if (btnRebuildOrder) btnRebuildOrder.addEventListener("click", () => runBuild(true));
 
-// ---------- STEP 3: Export (MP4 / QuickTime MOV + H.264 / H.265) ----------
+// ---------- STEP 3: Export (MP4 / QuickTime MOV + H.264 / H.265 + 10-bit HDR) ----------
 const inputLogo = $("input-logo");
 const fnLogo = $("fn-logo");
 const inputSrt = $("input-srt");
@@ -1581,6 +1810,23 @@ const exportStatus = $("export-status");
 const exportResult = $("export-result");
 const selExportContainer = $("export-container");
 const selExportCodec = $("export-codec");
+const cbExportHdr = $("export-hdr");
+const hdrCodecNote = $("hdr-codec-note");
+
+if (cbExportHdr) {
+  cbExportHdr.addEventListener("change", () => {
+    const isHdr = cbExportHdr.checked;
+    if (hdrCodecNote) hdrCodecNote.classList.toggle("hidden", !isHdr);
+    if (selExportCodec) {
+      if (isHdr) {
+        selExportCodec.value = "h265";
+        selExportCodec.disabled = true;
+      } else {
+        selExportCodec.disabled = false;
+      }
+    }
+  });
+}
 
 inputLogo.addEventListener("change", () => {
   logoFile = inputLogo.files[0] || null;
@@ -1599,11 +1845,12 @@ btnExport.addEventListener("click", async () => {
     return;
   }
 
+  const isHdr = Boolean(cbExportHdr && cbExportHdr.checked);
   const container = selExportContainer ? selExportContainer.value : "mp4";
-  const codec = selExportCodec ? selExportCodec.value : "h264";
+  const codec = isHdr ? "h265" : (selExportCodec ? selExportCodec.value : "h264");
 
   btnExport.disabled = true;
-  setStatus(exportStatus, `Exporting (${codec.toUpperCase()} · .${container})…`, "working");
+  setStatus(exportStatus, `Exporting (${codec.toUpperCase()}${isHdr ? " 10-bit HDR" : ""} · .${container})…`, "working");
   exportResult.classList.add("hidden");
   exportResult.innerHTML = "";
 
@@ -1612,6 +1859,7 @@ btnExport.addEventListener("click", async () => {
   fd.append("formats", formats.join(","));
   fd.append("container", container);
   fd.append("codec", codec);
+  fd.append("hdr", isHdr ? "true" : "false");
   fd.append("fps", String(projectFps));
   fd.append("width", String(projectWidth));
   fd.append("height", String(projectHeight));
@@ -2200,6 +2448,10 @@ function closeCurrentJob() {
   customAudioFile = null;
   clearCustomAudioFlag = false;
   audioStartOffset = 0.0;
+  audioDurationSec = 0.0;
+  undoStack = [];
+  redoStack = [];
+  updateUndoRedoUI();
 
   if ($("job-id-display")) $("job-id-display").textContent = "—";
   if (topJobInput) topJobInput.value = "—";
@@ -2209,7 +2461,7 @@ function closeCurrentJob() {
   if (fnLut) fnLut.textContent = "";
   if (btnClearLut) btnClearLut.classList.add("hidden");
   if (tlAudioTitle) tlAudioTitle.textContent = "🔊 Reference Audio Track (Synced)";
-  if (tlAudioOffsetLabel) tlAudioOffsetLabel.textContent = "Start: 0.0s";
+  if (tlAudioOffsetLabel) tlAudioOffsetLabel.textContent = "In: 0.0s · Len: Auto";
   if (btnClearAudio) btnClearAudio.classList.add("hidden");
   if (clipList) clipList.innerHTML = "";
   if (rhythmResult) rhythmResult.classList.add("hidden");
@@ -2267,6 +2519,7 @@ function deleteSelectedShot() {
     alert("Timeline must keep at least 1 shot.");
     return;
   }
+  pushUndoState();
   shotPlan.splice(selectedShotIdx, 1);
   if (selectedShotIdx >= shotPlan.length) selectedShotIdx = shotPlan.length - 1;
   markTimelineDirty();
@@ -2276,6 +2529,7 @@ function deleteSelectedShot() {
 
 function applyReframeToAllShots() {
   if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+  pushUndoState();
   const cur = shotPlan[selectedShotIdx];
   const z = cur.zoom !== undefined ? cur.zoom : 100;
   const px = cur.pan_x || 0;
@@ -2315,6 +2569,8 @@ bindMenuItem("menu-close-job", () => closeCurrentJob());
 bindMenuItem("menu-quit-app", () => quitSwiftReel());
 
 // EDIT menu bindings
+bindMenuItem("menu-undo", () => performUndo());
+bindMenuItem("menu-redo", () => performRedo());
 bindMenuItem("menu-rename-job", () => {
   if (topJobInput) {
     topJobInput.focus();
@@ -2334,10 +2590,13 @@ bindMenuItem("menu-edit-settings", () => openSettingsModal());
 // CLIP menu bindings
 bindMenuItem("menu-clip-trim-tab", () => switchInspectorSubtab("trim"));
 bindMenuItem("menu-clip-color-tab", () => switchInspectorSubtab("color"));
+bindMenuItem("menu-clip-copy-grade", () => copySelectedClipGrade());
+bindMenuItem("menu-clip-paste-grade", () => pasteGradeToSelectedClip());
 bindMenuItem("menu-clip-reframe-all", () => applyReframeToAllShots());
 bindMenuItem("menu-clip-grade-all", () => btnGradeAll && btnGradeAll.click());
 bindMenuItem("menu-clip-reset-reframe", () => btnResetReframe && btnResetReframe.click());
 bindMenuItem("menu-clip-reset-grade", () => btnResetGrade && btnResetGrade.click());
+bindMenuItem("menu-clip-master-reset-grade", () => masterResetAllGrading());
 bindMenuItem("menu-clip-load-lut", () => {
   switchInspectorSubtab("color");
   if (inputLut) inputLut.click();
@@ -2373,7 +2632,7 @@ bindMenuItem("menu-help-resolve", () => {
 });
 bindMenuItem("menu-help-about", () => {
   alert(
-    "Swift Reel Studio NLE v2.5\n\n• Beat-Synced Reference Cut Detector\n• Premiere-Style Multi-Track Timeline with Edge Trimming [ ]\n• Interactive Monitor Drag-to-Reframe & Resize\n• Full Color Grading, Levels, Curves, 3D LUT (.cube) & Fades\n• DaVinci Resolve FCPXML & CMX 3600 EDL Export"
+    "Swift Reel Studio NLE v2.5\n\n• Beat-Synced Reference Cut Detector\n• Premiere-Style Multi-Track Timeline with Edge Trimming [ ]\n• Interactive Monitor Drag-to-Reframe & Resize\n• Full Color Grading, Levels, Curves, 3D LUT (.cube) & Fades\n• 10-Step Undo / Redo & 10-bit HDR HEVC Output\n• DaVinci Resolve FCPXML & CMX 3600 EDL Export"
   );
 });
 
@@ -2382,9 +2641,34 @@ window.addEventListener("keydown", (e) => {
   const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : "";
   const isTyping = activeTag === "input" || activeTag === "textarea" || activeTag === "select";
 
+  if ((e.metaKey || e.ctrlKey) && e.altKey && !isTyping) {
+    const k = e.key.toLowerCase();
+    if (k === "c") {
+      e.preventDefault();
+      copySelectedClipGrade();
+      return;
+    } else if (k === "v") {
+      e.preventDefault();
+      pasteGradeToSelectedClip();
+      return;
+    }
+  }
+
   if (e.metaKey || e.ctrlKey) {
     const k = e.key.toLowerCase();
-    if (k === "n") {
+    if (k === "z" && !isTyping) {
+      e.preventDefault();
+      if (e.shiftKey) {
+        performRedo();
+      } else {
+        performUndo();
+      }
+      return;
+    } else if (k === "y" && !isTyping) {
+      e.preventDefault();
+      performRedo();
+      return;
+    } else if (k === "n") {
       e.preventDefault();
       startNewJob();
     } else if (k === "o") {
