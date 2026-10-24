@@ -6,7 +6,7 @@
 <title>Swift Reel</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=34">
+<link rel="stylesheet" href="/static/style.css?v=35">
 </head>
 <body class="nle-body">
 
@@ -109,6 +109,10 @@
           <button type="button" class="file-menu-item" id="menu-clip-color-tab">
             <span>🎨 Grading Inspector</span>
             <span class="shortcut">⌥2</span>
+          </button>
+          <button type="button" class="file-menu-item" id="menu-clip-text-tab">
+            <span>🔤 Text & Titles Inspector</span>
+            <span class="shortcut">⌥3</span>
           </button>
           <div class="file-menu-divider"></div>
           <button type="button" class="file-menu-item" id="menu-clip-copy-grade">
@@ -422,11 +426,14 @@
           </div>
 
           <div id="source-preview-wrap" class="monitor-video-wrap hidden" style="flex-direction:column; gap:8px;">
-            <div id="reframe-viewport" class="reframe-viewport" title="Drag with mouse to reposition clip">
+            <div id="reframe-viewport" class="reframe-viewport" title="Drag with mouse to reposition clip or text">
               <video id="source-preview" playsinline></video>
               <div id="vignette-preview-layer" class="vignette-preview-layer"></div>
               <div id="fade-preview-layer" class="fade-preview-layer"></div>
-              <div class="reframe-overlay-hint" id="reframe-overlay-hint">🖐️ Drag video to reposition · Scroll or use slider to resize</div>
+              <div id="text-preview-layer" class="text-preview-layer hidden" title="Drag to reposition text on screen">
+                <span id="text-preview-badge" class="text-preview-badge"></span>
+              </div>
+              <div class="reframe-overlay-hint" id="reframe-overlay-hint">🖐️ Drag video or text to reposition · Scroll to resize</div>
             </div>
             <!-- Hidden Audio Player for Real-Time CapCut Sequence Playback -->
             <audio id="live-audio-player" preload="auto" hidden></audio>
@@ -456,8 +463,9 @@
             </div>
 
             <div class="insp-subtabs" id="insp-subtabs">
-              <button type="button" class="insp-subtab active" data-subtab="trim">✂️ Trim & Reframe</button>
+              <button type="button" class="insp-subtab active" data-subtab="trim">✂️ Trim</button>
               <button type="button" class="insp-subtab" data-subtab="color">🎨 Grading</button>
+              <button type="button" class="insp-subtab" data-subtab="text">🔤 Text</button>
             </div>
 
             <div id="insp-empty" style="font-size:11.5px; color:var(--text-dim); padding:6px 0;">
@@ -590,6 +598,81 @@
 
                 <div style="margin-bottom:6px;">
                   <button type="button" id="btn-master-reset-grade" class="btn btn-danger btn-sm" style="width:100%;" title="Reset color grading, fades, and LUT across all shots in the timeline">🔄 Master Reset All Grading</button>
+                </div>
+              </div>
+
+              <!-- SUBTAB 3: TEXT & TITLE OVERLAY (Real-Time + Drag on Monitor) -->
+              <div id="insp-pane-text" class="hidden">
+                <div class="inspector-field">
+                  <label>
+                    <span>Text Overlay (Supports Multi-Line)</span>
+                    <span class="mono" style="font-size:10px; color:var(--accent-bright);">Live</span>
+                  </label>
+                  <textarea id="txt-overlay-content" rows="2" class="tactile-input" placeholder="Type title or caption for this shot…" style="width:100%; resize:vertical; font-family:inherit;"></textarea>
+                </div>
+
+                <div style="display:grid; grid-template-columns:1.2fr 0.8fr; gap:8px; margin-bottom:8px;">
+                  <div class="inspector-field" style="margin-bottom:0;">
+                    <label><span>Font Family</span></label>
+                    <div class="tactile-select-wrap">
+                      <select id="sel-txt-font">
+                        <option value="Arial Bold" selected>Arial Bold</option>
+                        <option value="Helvetica Bold">Helvetica Bold</option>
+                        <option value="Impact">Impact (Reels)</option>
+                        <option value="Futura">Futura</option>
+                        <option value="Georgia">Georgia Serif</option>
+                        <option value="Courier New">Courier Mono</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="inspector-field" style="margin-bottom:0;">
+                    <label><span>Style</span></label>
+                    <div class="tactile-select-wrap">
+                      <select id="sel-txt-bg-style">
+                        <option value="pill" selected>Rounded Pill</option>
+                        <option value="box">Solid Box</option>
+                        <option value="outline">Outline Only</option>
+                        <option value="none">Clean Shadow</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="grade-row" style="margin-bottom:8px;">
+                  <label><span>Font Size</span><span class="mono" id="val-txt-size">56px</span></label>
+                  <input type="range" id="sl-txt-size" min="24" max="120" step="2" value="56">
+                </div>
+
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+                  <div class="inspector-field" style="margin-bottom:0;">
+                    <label><span>Text Color</span></label>
+                    <input type="color" id="col-txt-color" value="#FFFFFF" style="width:100%; height:30px; background:#1F2C38; border:1px solid var(--border-dark); border-radius:4px; cursor:pointer;">
+                  </div>
+                  <div class="inspector-field" style="margin-bottom:0;">
+                    <label><span>Backdrop Color</span></label>
+                    <input type="color" id="col-txt-bg" value="#1F2C38" style="width:100%; height:30px; background:#1F2C38; border:1px solid var(--border-dark); border-radius:4px; cursor:pointer;">
+                  </div>
+                </div>
+
+                <div class="inspector-field" style="margin-bottom:8px;">
+                  <label><span>Quick Position (or Drag Text Directly in Monitor)</span></label>
+                  <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px;">
+                    <button type="button" class="btn btn-secondary btn-sm txt-pos-btn" data-y="18">⬆ Top</button>
+                    <button type="button" class="btn btn-secondary btn-sm txt-pos-btn" data-y="50">⏺ Center</button>
+                    <button type="button" class="btn btn-secondary btn-sm txt-pos-btn" data-y="82">⬇ Bottom</button>
+                  </div>
+                  <div class="mono" id="txt-pos-readout" style="font-size:10px; color:var(--text-dim); margin-top:3px;">
+                    Position: X 50% · Y 82% (Drag text in monitor to move)
+                  </div>
+                </div>
+
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:6px;">
+                  <button type="button" id="btn-txt-all" class="btn btn-secondary btn-sm" title="Copy this text overlay onto all shots in the timeline">✨ Text to All Shots</button>
+                  <button type="button" id="btn-txt-clear" class="btn btn-secondary btn-sm" title="Clear text from this shot">🗑️ Clear Clip Text</button>
+                </div>
+
+                <div style="margin-bottom:6px;">
+                  <button type="button" id="btn-txt-master-clear" class="btn btn-danger btn-sm" style="width:100%;" title="Remove text overlays from all shots in the timeline">🔄 Clear All Timeline Text</button>
                 </div>
               </div>
 
@@ -915,6 +998,6 @@
     </div>
   </div>
 
-<script src="/static/app.js?v=34"></script>
+<script src="/static/app.js?v=35"></script>
 </body>
 </html>

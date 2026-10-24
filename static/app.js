@@ -69,6 +69,32 @@ function ensureShotGrade(shot) {
   return shot.grade;
 }
 
+function defaultTextOverlay() {
+  return {
+    content: "",
+    font: "Arial Bold",
+    size: 56,
+    color: "#FFFFFF",
+    bg_style: "pill",
+    bg_color: "#1F2C38",
+    x: 50,
+    y: 82,
+  };
+}
+
+function ensureShotText(shot) {
+  if (!shot) return defaultTextOverlay();
+  if (!shot.text || typeof shot.text !== "object") {
+    shot.text = defaultTextOverlay();
+  } else {
+    const def = defaultTextOverlay();
+    Object.keys(def).forEach((k) => {
+      if (shot.text[k] === undefined) shot.text[k] = def[k];
+    });
+  }
+  return shot.text;
+}
+
 const $ = (id) => document.getElementById(id);
 
 function fmtTime(s) {
@@ -858,6 +884,22 @@ const inspShotBadge = $("insp-shot-badge");
 const inspSubtabs = $("insp-subtabs");
 const inspPaneTrim = $("insp-pane-trim");
 const inspPaneColor = $("insp-pane-color");
+const inspPaneText = $("insp-pane-text");
+
+// Text & Title Overlay DOM
+const textPreviewLayer = $("text-preview-layer");
+const textPreviewBadge = $("text-preview-badge");
+const txtOverlayContent = $("txt-overlay-content");
+const selTxtFont = $("sel-txt-font");
+const selTxtBgStyle = $("sel-txt-bg-style");
+const slTxtSize = $("sl-txt-size");
+const valTxtSize = $("val-txt-size");
+const colTxtColor = $("col-txt-color");
+const colTxtBg = $("col-txt-bg");
+const txtPosReadout = $("txt-pos-readout");
+const btnTxtAll = $("btn-txt-all");
+const btnTxtClear = $("btn-txt-clear");
+const btnTxtMasterClear = $("btn-txt-master-clear");
 
 const inspClipSelect = $("insp-clip-select");
 const inspInpointSlider = $("insp-inpoint-slider");
@@ -976,9 +1018,13 @@ if (btnUndo) btnUndo.addEventListener("click", performUndo);
 if (btnRedo) btnRedo.addEventListener("click", performRedo);
 
 function switchInspectorSubtab(subtab) {
-  activeInspectorSubtab = subtab === "color" ? "color" : "trim";
+  if (subtab === "color") activeInspectorSubtab = "color";
+  else if (subtab === "text") activeInspectorSubtab = "text";
+  else activeInspectorSubtab = "trim";
+
   if (inspPaneTrim) inspPaneTrim.classList.toggle("hidden", activeInspectorSubtab !== "trim");
   if (inspPaneColor) inspPaneColor.classList.toggle("hidden", activeInspectorSubtab !== "color");
+  if (inspPaneText) inspPaneText.classList.toggle("hidden", activeInspectorSubtab !== "text");
   if (inspSubtabs) {
     Array.from(inspSubtabs.querySelectorAll(".insp-subtab")).forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.subtab === activeInspectorSubtab);
@@ -1021,11 +1067,72 @@ function applyGradeFilterToPreview() {
   }
 }
 
+function applyTextOverlayToPreview() {
+  if (!textPreviewLayer || !textPreviewBadge) return;
+  if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) {
+    textPreviewLayer.classList.add("hidden");
+    return;
+  }
+  const t = ensureShotText(shotPlan[selectedShotIdx]);
+  const raw = (t.content || "").trim();
+  if (!raw) {
+    textPreviewLayer.classList.add("hidden");
+    return;
+  }
+
+  textPreviewLayer.classList.remove("hidden");
+  textPreviewBadge.textContent = raw;
+
+  const vpRect = reframeViewport ? reframeViewport.getBoundingClientRect() : null;
+  const vpW = vpRect && vpRect.width ? vpRect.width : 280;
+  const scaleRatio = vpW / (projectWidth || 1080);
+  const pxSize = Math.max(11, Math.round(Number(t.size || 56) * scaleRatio));
+
+  textPreviewBadge.style.fontFamily = `"${t.font || "Arial Bold"}", sans-serif`;
+  textPreviewBadge.style.fontSize = `${pxSize}px`;
+  textPreviewBadge.style.color = t.color || "#FFFFFF";
+
+  const bgStyle = t.bg_style || "pill";
+  const bgCol = t.bg_color || "#1F2C38";
+  if (bgStyle === "pill") {
+    textPreviewBadge.style.background = bgCol;
+    textPreviewBadge.style.borderRadius = "999px";
+    textPreviewBadge.style.padding = `${Math.max(4, Math.round(pxSize * 0.25))}px ${Math.max(10, Math.round(pxSize * 0.48))}px`;
+    textPreviewBadge.style.border = "1px solid rgba(231,237,242,0.22)";
+    textPreviewBadge.style.textShadow = "0 1px 2px rgba(15,22,28,0.6)";
+  } else if (bgStyle === "box") {
+    textPreviewBadge.style.background = bgCol;
+    textPreviewBadge.style.borderRadius = "6px";
+    textPreviewBadge.style.padding = `${Math.max(4, Math.round(pxSize * 0.25))}px ${Math.max(10, Math.round(pxSize * 0.45))}px`;
+    textPreviewBadge.style.border = "1px solid rgba(231,237,242,0.22)";
+    textPreviewBadge.style.textShadow = "0 1px 2px rgba(15,22,28,0.6)";
+  } else if (bgStyle === "outline") {
+    textPreviewBadge.style.background = "transparent";
+    textPreviewBadge.style.border = "none";
+    textPreviewBadge.style.padding = "2px 4px";
+    textPreviewBadge.style.textShadow = "-1.5px -1.5px 0 #0F161C, 1.5px -1.5px 0 #0F161C, -1.5px 1.5px 0 #0F161C, 1.5px 1.5px 0 #0F161C, 0 3px 8px rgba(15,22,28,0.85)";
+  } else {
+    textPreviewBadge.style.background = "transparent";
+    textPreviewBadge.style.border = "none";
+    textPreviewBadge.style.padding = "2px 4px";
+    textPreviewBadge.style.textShadow = "0 2px 10px rgba(15,22,28,0.95)";
+  }
+
+  const posX = Math.max(5, Math.min(95, Number(t.x !== undefined ? t.x : 50)));
+  const posY = Math.max(5, Math.min(95, Number(t.y !== undefined ? t.y : 82)));
+  textPreviewLayer.style.left = `${posX.toFixed(1)}%`;
+  textPreviewLayer.style.top = `${posY.toFixed(1)}%`;
+  if (txtPosReadout) {
+    txtPosReadout.textContent = `Position: X ${Math.round(posX)}% · Y ${Math.round(posY)}% (Drag text in monitor to move)`;
+  }
+}
+
 function applyReframeTransformToPreview() {
   if (!sourcePreview) return;
   if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) {
     sourcePreview.style.transform = "translate(0%, 0%) scale(1)";
     applyGradeFilterToPreview();
+    applyTextOverlayToPreview();
     return;
   }
   const shot = shotPlan[selectedShotIdx];
@@ -1040,18 +1147,39 @@ function applyReframeTransformToPreview() {
     inspPanReadout.textContent = `Position: X ${panX > 0 ? "+" : ""}${Math.round(panX)}% · Y ${panY > 0 ? "+" : ""}${Math.round(panY)}% (Drag video in monitor)`;
   }
   applyGradeFilterToPreview();
+  applyTextOverlayToPreview();
 }
 
-// Mouse Drag to Reposition & Wheel to Resize inside #reframe-viewport
+// Mouse Drag to Reposition Text or Video & Wheel to Resize inside #reframe-viewport
 let isDraggingReframe = false;
+let isDraggingText = false;
 let dragStartX = 0;
 let dragStartY = 0;
 let dragOrigPanX = 0;
 let dragOrigPanY = 0;
+let dragOrigTxtX = 50;
+let dragOrigTxtY = 82;
+
+if (textPreviewLayer) {
+  textPreviewLayer.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return;
+    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+    e.stopPropagation();
+    e.preventDefault();
+    pushUndoState();
+    switchInspectorSubtab("text");
+    isDraggingText = true;
+    dragStartX = e.clientX;
+    dragStartY = e.clientY;
+    const t = ensureShotText(shotPlan[selectedShotIdx]);
+    dragOrigTxtX = Number(t.x !== undefined ? t.x : 50);
+    dragOrigTxtY = Number(t.y !== undefined ? t.y : 82);
+  });
+}
 
 if (reframeViewport) {
   reframeViewport.addEventListener("mousedown", (e) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || isDraggingText) return;
     if (selectedShotIdx < 0 && shotPlan.length > 0) {
       selectedShotIdx = 0;
       populateInspector();
@@ -1068,6 +1196,18 @@ if (reframeViewport) {
   });
 
   window.addEventListener("mousemove", (e) => {
+    if (isDraggingText && selectedShotIdx >= 0 && selectedShotIdx < shotPlan.length) {
+      const rect = reframeViewport.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const dxPct = ((e.clientX - dragStartX) / rect.width) * 100;
+      const dyPct = ((e.clientY - dragStartY) / rect.height) * 100;
+      const t = ensureShotText(shotPlan[selectedShotIdx]);
+      t.x = Math.max(5, Math.min(95, dragOrigTxtX + dxPct));
+      t.y = Math.max(5, Math.min(95, dragOrigTxtY + dyPct));
+      applyTextOverlayToPreview();
+      markTimelineDirty();
+      return;
+    }
     if (!isDraggingReframe || selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
     const rect = reframeViewport.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
@@ -1080,6 +1220,10 @@ if (reframeViewport) {
   });
 
   window.addEventListener("mouseup", () => {
+    if (isDraggingText) {
+      isDraggingText = false;
+      renderTimelineTrack();
+    }
     if (isDraggingReframe) {
       isDraggingReframe = false;
       renderTimelineTrack();
@@ -1303,10 +1447,12 @@ function renderTimelineTrack() {
     const shortClip = (shot.clip || "").replace(/\.(mov|mp4|m4v|mkv|avi|webm)$/i, "");
     const zoomNum = Math.round(shot.zoom !== undefined ? shot.zoom : 100);
     const g = shot.grade || {};
+    const t = ensureShotText(shot);
     const hasGrade =
       g.brightness || g.contrast || g.saturation || g.temperature || g.tint || g.whites || g.blacks || g.vignette ||
       (g.curve && g.curve !== "none") || g.fade_in > 0 || g.fade_out > 0;
-    const gradeDot = hasGrade ? " 🎨" : "";
+    const hasText = Boolean((t.content || "").trim());
+    const gradeDot = (hasGrade ? " 🎨" : "") + (hasText ? " 🔤" : "");
     const tagBadge = shot.tag
       ? `<span class="tl-shot-tag">${shot.tag}${gradeDot}</span>`
       : `<span class="tl-shot-tag">${zoomNum}%${gradeDot}</span>`;
@@ -1608,7 +1754,159 @@ function populateInspector() {
   inspDuration.value = Number(shot.duration || 1.0).toFixed(2);
 
   populateGradingControls(shot);
+  populateTextControls(shot);
   applyReframeTransformToPreview();
+}
+
+function populateTextControls(shot) {
+  const t = ensureShotText(shot);
+  if (txtOverlayContent && document.activeElement !== txtOverlayContent) {
+    txtOverlayContent.value = t.content || "";
+  }
+  if (selTxtFont) selTxtFont.value = t.font || "Arial Bold";
+  if (selTxtBgStyle) selTxtBgStyle.value = t.bg_style || "pill";
+  if (slTxtSize) slTxtSize.value = t.size || 56;
+  if (valTxtSize) valTxtSize.textContent = `${t.size || 56}px`;
+  if (colTxtColor) colTxtColor.value = t.color || "#FFFFFF";
+  if (colTxtBg) colTxtBg.value = t.bg_color || "#1F2C38";
+  if (txtPosReadout) {
+    txtPosReadout.textContent = `Position: X ${Math.round(t.x || 50)}% · Y ${Math.round(t.y || 82)}% (Drag text in monitor to move)`;
+  }
+}
+
+if (txtOverlayContent) {
+  txtOverlayContent.addEventListener("focus", () => {
+    if (selectedShotIdx >= 0 && selectedShotIdx < shotPlan.length) pushUndoState();
+  });
+  txtOverlayContent.addEventListener("input", () => {
+    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+    const t = ensureShotText(shotPlan[selectedShotIdx]);
+    t.content = txtOverlayContent.value;
+    showMonitorTab("source");
+    applyTextOverlayToPreview();
+    renderTimelineTrack();
+    markTimelineDirty();
+  });
+}
+
+if (selTxtFont) {
+  selTxtFont.addEventListener("change", () => {
+    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+    pushUndoState();
+    const t = ensureShotText(shotPlan[selectedShotIdx]);
+    t.font = selTxtFont.value;
+    showMonitorTab("source");
+    applyTextOverlayToPreview();
+    markTimelineDirty();
+  });
+}
+
+if (selTxtBgStyle) {
+  selTxtBgStyle.addEventListener("change", () => {
+    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+    pushUndoState();
+    const t = ensureShotText(shotPlan[selectedShotIdx]);
+    t.bg_style = selTxtBgStyle.value;
+    showMonitorTab("source");
+    applyTextOverlayToPreview();
+    markTimelineDirty();
+  });
+}
+
+if (slTxtSize) {
+  slTxtSize.addEventListener("mousedown", () => {
+    if (selectedShotIdx >= 0) pushUndoState();
+  });
+  slTxtSize.addEventListener("input", () => {
+    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+    const sz = parseInt(slTxtSize.value, 10) || 56;
+    const t = ensureShotText(shotPlan[selectedShotIdx]);
+    t.size = sz;
+    if (valTxtSize) valTxtSize.textContent = `${sz}px`;
+    showMonitorTab("source");
+    applyTextOverlayToPreview();
+    markTimelineDirty();
+  });
+}
+
+if (colTxtColor) {
+  colTxtColor.addEventListener("input", () => {
+    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+    const t = ensureShotText(shotPlan[selectedShotIdx]);
+    t.color = colTxtColor.value;
+    showMonitorTab("source");
+    applyTextOverlayToPreview();
+    markTimelineDirty();
+  });
+}
+
+if (colTxtBg) {
+  colTxtBg.addEventListener("input", () => {
+    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+    const t = ensureShotText(shotPlan[selectedShotIdx]);
+    t.bg_color = colTxtBg.value;
+    showMonitorTab("source");
+    applyTextOverlayToPreview();
+    markTimelineDirty();
+  });
+}
+
+Array.from(document.querySelectorAll(".txt-pos-btn")).forEach((btn) => {
+  btn.addEventListener("click", () => {
+    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+    pushUndoState();
+    const t = ensureShotText(shotPlan[selectedShotIdx]);
+    t.x = 50;
+    t.y = parseFloat(btn.dataset.y) || 82;
+    showMonitorTab("source");
+    applyTextOverlayToPreview();
+    markTimelineDirty();
+  });
+});
+
+if (btnTxtAll) {
+  btnTxtAll.addEventListener("click", () => {
+    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+    pushUndoState();
+    const srcTxt = JSON.parse(JSON.stringify(ensureShotText(shotPlan[selectedShotIdx])));
+    shotPlan.forEach((s) => {
+      s.text = JSON.parse(JSON.stringify(srcTxt));
+    });
+    renderTimelineTrack();
+    markTimelineDirty();
+    setStatus(buildStatus, "✨ Copied text overlay to all shots on the timeline!", "success");
+  });
+}
+
+if (btnTxtClear) {
+  btnTxtClear.addEventListener("click", () => {
+    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+    pushUndoState();
+    shotPlan[selectedShotIdx].text = defaultTextOverlay();
+    if (txtOverlayContent) txtOverlayContent.value = "";
+    populateTextControls(shotPlan[selectedShotIdx]);
+    applyTextOverlayToPreview();
+    renderTimelineTrack();
+    markTimelineDirty();
+  });
+}
+
+if (btnTxtMasterClear) {
+  btnTxtMasterClear.addEventListener("click", () => {
+    if (!shotPlan || !shotPlan.length) return;
+    pushUndoState();
+    shotPlan.forEach((s) => {
+      s.text = defaultTextOverlay();
+    });
+    if (txtOverlayContent) txtOverlayContent.value = "";
+    if (selectedShotIdx >= 0 && selectedShotIdx < shotPlan.length) {
+      populateTextControls(shotPlan[selectedShotIdx]);
+    }
+    applyTextOverlayToPreview();
+    renderTimelineTrack();
+    markTimelineDirty();
+    setStatus(buildStatus, "🔄 Cleared text overlays from all shots in the timeline.", "success");
+  });
 }
 
 // Wire Grading Sliders & Controls
@@ -2804,6 +3102,7 @@ bindMenuItem("menu-edit-settings", () => openSettingsModal());
 // CLIP menu bindings
 bindMenuItem("menu-clip-trim-tab", () => switchInspectorSubtab("trim"));
 bindMenuItem("menu-clip-color-tab", () => switchInspectorSubtab("color"));
+bindMenuItem("menu-clip-text-tab", () => switchInspectorSubtab("text"));
 bindMenuItem("menu-clip-copy-grade", () => copySelectedClipGrade());
 bindMenuItem("menu-clip-paste-grade", () => pasteGradeToSelectedClip());
 bindMenuItem("menu-clip-reframe-all", () => applyReframeToAllShots());
@@ -2928,6 +3227,9 @@ window.addEventListener("keydown", (e) => {
     } else if (e.key === "2") {
       e.preventDefault();
       switchInspectorSubtab("color");
+    } else if (e.key === "3") {
+      e.preventDefault();
+      switchInspectorSubtab("text");
     } else if (e.key === "ArrowLeft") {
       e.preventDefault();
       if (btnMoveLeft && !btnMoveLeft.disabled) btnMoveLeft.click();

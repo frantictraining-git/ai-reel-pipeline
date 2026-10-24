@@ -68,6 +68,125 @@ def make_reel_id(clip_name: str, index: int) -> str:
     return base
 
 
+def _hex_to_rgba(hex_str: str, alpha: int = 255):
+    s = (hex_str or "#FFFFFF").strip().lstrip("#")
+    if len(s) == 3:
+        s = "".join(ch * 2 for ch in s)
+    if len(s) != 6:
+        return (255, 255, 255, alpha)
+    try:
+        return (int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16), alpha)
+    except ValueError:
+        return (255, 255, 255, alpha)
+
+
+def render_text_overlay_png(text_cfg: dict, width: int, height: int, out_png: Path) -> bool:
+    """Render a transparent RGBA PNG overlay for a clip's text title using Pillow."""
+    if not text_cfg or not isinstance(text_cfg, dict):
+        return False
+    content = str(text_cfg.get("content") or "").strip()
+    if not content:
+        return False
+
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError:
+        return False
+
+    img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    font_family = str(text_cfg.get("font") or "Arial Bold").strip()
+    base_size = float(text_cfg.get("size", 56))
+    font_px = max(18, int(round(base_size * (width / 1080.0))))
+
+    font_candidates = {
+        "Helvetica Bold": [
+            "/System/Library/Fonts/Helvetica.ttc",
+            "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+        ],
+        "Arial Bold": [
+            "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+            "/System/Library/Fonts/Helvetica.ttc",
+        ],
+        "Impact": [
+            "/System/Library/Fonts/Supplemental/Impact.ttf",
+            "/System/Library/Fonts/Supplemental/Arial Black.ttf",
+        ],
+        "Futura": [
+            "/System/Library/Fonts/Supplemental/Futura.ttc",
+            "/System/Library/Fonts/Helvetica.ttc",
+        ],
+        "Georgia": [
+            "/System/Library/Fonts/Supplemental/Georgia Bold.ttf",
+            "/System/Library/Fonts/Supplemental/Georgia.ttf",
+        ],
+        "Courier New": [
+            "/System/Library/Fonts/Supplemental/Courier New Bold.ttf",
+            "/System/Library/Fonts/Monaco.ttf",
+        ],
+    }
+
+    paths_to_try = font_candidates.get(font_family, []) + [
+        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+        "/System/Library/Fonts/Helvetica.ttc",
+    ]
+    font_obj = None
+    for fp in paths_to_try:
+        if Path(fp).exists():
+            try:
+                font_obj = ImageFont.truetype(fp, font_px)
+                break
+            except Exception:
+                pass
+    if font_obj is None:
+        font_obj = ImageFont.load_default()
+
+    stroke_w = max(2, int(round(font_px * 0.06)))
+    bbox = draw.multiline_textbbox((0, 0), content, font=font_obj, align="center", stroke_width=stroke_w)
+    tw = bbox[2] - bbox[0]
+    th = bbox[3] - bbox[1]
+
+    pos_x_pct = max(5.0, min(95.0, float(text_cfg.get("x", 50.0))))
+    pos_y_pct = max(5.0, min(95.0, float(text_cfg.get("y", 80.0))))
+
+    cx = int(round((pos_x_pct / 100.0) * width))
+    cy = int(round((pos_y_pct / 100.0) * height))
+
+    x0 = max(20, min(width - tw - 20, cx - tw // 2))
+    y0 = max(20, min(height - th - 20, cy - th // 2))
+
+    bg_style = str(text_cfg.get("bg_style") or "pill").strip()
+    bg_color_hex = str(text_cfg.get("bg_color") or "#1F2C38").strip()
+    if bg_style in ("pill", "box"):
+        pad_x = max(18, int(round(font_px * 0.42)))
+        pad_y = max(12, int(round(font_px * 0.26)))
+        rx0 = max(8, x0 - pad_x)
+        ry0 = max(8, y0 - pad_y)
+        rx1 = min(width - 8, x0 + tw + pad_x)
+        ry1 = min(height - 8, y0 + th + pad_y)
+        bg_rgba = _hex_to_rgba(bg_color_hex, alpha=215 if bg_style == "pill" else 235)
+        radius = int(round((ry1 - ry0) * 0.35)) if bg_style == "pill" else 8
+        draw.rounded_rectangle([rx0, ry0, rx1, ry1], radius=radius, fill=bg_rgba)
+
+    text_rgba = _hex_to_rgba(str(text_cfg.get("color") or "#FFFFFF"), alpha=255)
+    outline_rgba = (15, 22, 28, 235) if bg_style == "outline" else (15, 22, 28, 160)
+    use_stroke = stroke_w if bg_style in ("outline", "none") else max(1, stroke_w // 2)
+
+    draw.multiline_text(
+        (x0, y0),
+        content,
+        font=font_obj,
+        fill=text_rgba,
+        align="center",
+        stroke_width=use_stroke,
+        stroke_fill=outline_rgba,
+    )
+
+    img.save(str(out_png), "PNG")
+    return True
+
+
 def build_grade_filter(grade: dict, shot_dur: float, lut_path: str = None) -> str:
     """Build FFmpeg video filter chain for color grading, LUT, levels, curves, vignette & fades."""
     if not grade and not lut_path:
@@ -260,6 +379,7 @@ def build(
             span_x = float(sp.get("pan_x", 0.0))
             span_y = float(sp.get("pan_y", 0.0))
             sgrade = sp.get("grade") or {}
+            stext = sp.get("text") or {}
             stag = sp.get("tag", shots[idx % len(shots)].get("tag") if idx < len(shots) else None)
             active_shots.append({
                 "index": idx,
@@ -271,6 +391,7 @@ def build(
                 "pan_x": span_x,
                 "pan_y": span_y,
                 "grade": sgrade,
+                "text": stext,
                 "tag": stag,
             })
     else:
@@ -351,6 +472,7 @@ def build(
             "pan_x": round(span_x, 2),
             "pan_y": round(span_y, 2),
             "grade": item.get("grade") or {},
+            "text": item.get("text") or {},
             "tag": item.get("tag"),
         })
 
@@ -383,18 +505,41 @@ def build(
         if freeze_pad > 0:
             vf += f",tpad=stop_mode=clone:stop_duration={freeze_pad:.3f}"
 
-        cmd = [
-            FFMPEG,
-            "-y",
-            "-ss",
-            str(in_point),
-            "-i",
-            str(clip),
-            "-t",
-            str(use_duration),
-            "-vf",
-            vf,
-        ]
+        txt_png = tmpdir / f"txt_{i:03d}.png"
+        has_txt_png = render_text_overlay_png(item.get("text"), width, height, txt_png)
+
+        if has_txt_png:
+            cmd = [
+                FFMPEG,
+                "-y",
+                "-ss",
+                str(in_point),
+                "-i",
+                str(clip),
+                "-i",
+                str(txt_png),
+                "-t",
+                str(use_duration),
+                "-filter_complex",
+                f"[0:v]{vf}[vbase];[vbase][1:v]overlay=0:0:format=auto[vout]",
+                "-map",
+                "[vout]",
+            ]
+            if keep_audio:
+                cmd += ["-map", "0:a?"]
+        else:
+            cmd = [
+                FFMPEG,
+                "-y",
+                "-ss",
+                str(in_point),
+                "-i",
+                str(clip),
+                "-t",
+                str(use_duration),
+                "-vf",
+                vf,
+            ]
         if hdr_output:
             cmd += [
                 "-c:v", "libx265",
@@ -454,6 +599,7 @@ def build(
             "pan_x": s.get("pan_x", 0.0),
             "pan_y": s.get("pan_y", 0.0),
             "grade": s.get("grade") or {},
+            "text": s.get("text") or {},
             "tag": s["tag"],
         }
         for s in shot_log

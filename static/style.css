@@ -585,6 +585,35 @@ body.nle-body {
   background: #0F161C;
 }
 
+.text-preview-layer {
+  position: absolute;
+  left: 50%;
+  top: 82%;
+  transform: translate(-50%, -50%);
+  z-index: 4;
+  cursor: move;
+  user-select: none;
+  max-width: 90%;
+  text-align: center;
+  pointer-events: auto;
+}
+
+.text-preview-badge {
+  display: inline-block;
+  white-space: pre-wrap;
+  line-height: 1.22;
+  font-weight: 700;
+  padding: 6px 14px;
+  border-radius: 999px;
+  box-shadow: 0 4px 14px rgba(15, 22, 28, 0.55);
+  border: 1px solid rgba(231, 237, 242, 0.22);
+}
+
+.text-preview-layer:hover .text-preview-badge {
+  outline: 1.5px dashed rgba(231, 237, 242, 0.75);
+  outline-offset: 2px;
+}
+
 .reframe-overlay-hint {
   position: absolute;
   bottom: 8px;
