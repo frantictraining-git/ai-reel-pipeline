@@ -1519,6 +1519,7 @@ input[type="range"]::-webkit-slider-thumb:active {
   gap: 6px;
   min-width: max-content;
   height: 18px;
+  padding-right: 650px; /* Generous blank space past end for smooth scrolling */
 }
 
 .tl-track-label.ruler-corner,
@@ -1559,11 +1560,13 @@ input[type="range"]::-webkit-slider-thumb:active {
   gap: 6px;
   min-width: max-content;
   height: 92px;
+  padding-right: 650px; /* Generous blank space past end so last clip is easily grabbed and trimmed */
 }
 
 .tl-track-row.audio-track-row,
 .tl-track-row.audio-row {
   height: 44px;
+  padding-right: 650px;
 }
 
 .tl-track-label {

@@ -325,19 +325,31 @@ function syncLiveAudioVolume() {
 }
 
 // ---------- Per-Clip Reverse Helpers ----------
-// In editing mode, clips always preview from the original full-resolution source file.
-// The actual reversal is processed on the full-resolution source files when clicking 'Build Reel'.
+// Browsers can't play <video> backwards natively, so reversed shots preview from a
+// server-cached, full-resolution stream of the trimmed window (starts at 0.0s = start of reversed clip).
+// Source files on SSD are never modified.
 function isShotReversedPreview(shot) {
-  return false;
+  return Boolean(shot && shot.reverse && shot.clip && !shot.clip.includes("(awaiting clips)"));
 }
 
 function getShotDeckIn(shot) {
   if (!shot) return 0;
-  return Number(shot.in_point || 0);
+  // If previewing reversed clip, the reversed stream starts at 0.0s
+  return isShotReversedPreview(shot) ? 0 : Number(shot.in_point || 0);
 }
 
 function resolveShotSourceUrl(shot) {
   if (!shot) return null;
+  if (isShotReversedPreview(shot) && shot.clip && !shot.clip.includes("(awaiting clips)")) {
+    const inPt = Number(shot.in_point || 0).toFixed(2);
+    const dur = Number(shot.duration || 1.0).toFixed(2);
+    const jId = jobId || "local";
+    let url = `/api/clip_reversed/${jId}/${encodeURIComponent(shot.clip)}?in=${inPt}&dur=${dur}`;
+    if (localFolderPath) {
+      url += `&folder=${encodeURIComponent(localFolderPath)}`;
+    }
+    return url;
+  }
   return resolveClipSourceUrl(shot.clip);
 }
 
@@ -2289,6 +2301,16 @@ window.addEventListener("mousemove", (e) => {
   const dxPx = e.clientX - startX;
   const deltaSec = dxPx / 110.0; // 110px per second scale
 
+  // Auto-scroll timeline tracks container if dragging near viewport edges
+  if (timelineTracksWrap) {
+    const wrapRect = timelineTracksWrap.getBoundingClientRect();
+    if (e.clientX > wrapRect.right - 50) {
+      timelineTracksWrap.scrollLeft += 18;
+    } else if (e.clientX < wrapRect.left + 50) {
+      timelineTracksWrap.scrollLeft -= 18;
+    }
+  }
+
   if (side === "left") {
     // Dragging left edge '[' adjusts In-Point and inversely adjusts Duration
     const maxIn = Math.max(0, origIn + origDur - 0.15);
@@ -2305,7 +2327,8 @@ window.addEventListener("mousemove", (e) => {
     }
   } else {
     // Dragging right edge ']' adjusts Out-Point / Duration
-    const maxDur = Math.max(0.5, clipDur - origIn);
+    const actualClipDur = Math.max(Number(shot.clip_duration || 0), (sourcePreview && sourcePreview.duration > 0) ? sourcePreview.duration : 60.0);
+    const maxDur = Math.max(0.5, actualClipDur - origIn);
     const newDur = Math.max(0.15, Math.min(maxDur, origDur + deltaSec));
     shot.duration = Number(newDur.toFixed(2));
     if (selectedShotIdx === idx && sourcePreview) {
@@ -2316,7 +2339,8 @@ window.addEventListener("mousemove", (e) => {
     }
   }
 
-  const widthPx = Math.max(96, Math.min(340, Math.round(shot.duration * 110)));
+  // Allow card to expand smoothly without arbitrary 340px clamp
+  const widthPx = Math.max(96, Math.round(shot.duration * 110));
   if (cardEl) cardEl.style.width = `${widthPx}px`;
   if (metaEl) {
     metaEl.innerHTML = `<span>In: ${Number(shot.in_point || 0).toFixed(1)}s</span><span>${Number(shot.duration || 0).toFixed(2)}s</span>`;
@@ -2394,7 +2418,7 @@ function renderTimelineTrack() {
     ensureShotGrade(shot);
     const card = document.createElement("div");
     card.className = "tl-shot-card" + (idx === selectedShotIdx ? " selected" : "");
-    const widthPx = Math.max(96, Math.min(340, Math.round(shot.duration * 110)));
+    const widthPx = Math.max(96, Math.round(shot.duration * 110));
     card.style.width = `${widthPx}px`;
     cumulativeWidth += widthPx + 5;
     card.draggable = true;
@@ -3218,10 +3242,15 @@ if (inspInpointSlider) {
     inspInpoint.value = val.toFixed(2);
     shotPlan[selectedShotIdx].in_point = val;
     markTimelineDirty();
-    previewSelectedShotInMonitor(false);
+    if (!isShotReversedPreview(shotPlan[selectedShotIdx])) {
+      previewSelectedShotInMonitor(false);
+    }
   });
   inspInpointSlider.addEventListener("change", () => {
     renderTimelineTrack();
+    if (selectedShotIdx >= 0 && isShotReversedPreview(shotPlan[selectedShotIdx])) {
+      previewSelectedShotInMonitor(false);
+    }
   });
 }
 
