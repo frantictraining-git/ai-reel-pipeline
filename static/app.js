@@ -325,24 +325,19 @@ function syncLiveAudioVolume() {
 }
 
 // ---------- Per-Clip Reverse Helpers ----------
-// Browsers can't play <video> backwards, so reversed shots preview from a
-// server-built proxy of just the trimmed window (time 0 = start of the shot).
+// In editing mode, clips always preview from the original full-resolution source file.
+// The actual reversal is processed on the full-resolution source files when clicking 'Build Reel'.
 function isShotReversedPreview(shot) {
-  return Boolean(shot && shot.reverse && jobId && !(!localFolderPath && clipFiles.length));
+  return false;
 }
 
 function getShotDeckIn(shot) {
   if (!shot) return 0;
-  return isShotReversedPreview(shot) ? 0 : Number(shot.in_point || 0);
+  return Number(shot.in_point || 0);
 }
 
 function resolveShotSourceUrl(shot) {
   if (!shot) return null;
-  if (isShotReversedPreview(shot) && shot.clip && !shot.clip.includes("(awaiting clips)")) {
-    const inPt = Number(shot.in_point || 0).toFixed(2);
-    const dur = Number(shot.duration || 1.0).toFixed(2);
-    return `/api/clip_reversed/${jobId}/${encodeURIComponent(shot.clip)}?in=${inPt}&dur=${dur}`;
-  }
   return resolveClipSourceUrl(shot.clip);
 }
 
@@ -2640,6 +2635,7 @@ function markTimelineDirty() {
   timelineDirty = true;
   if (jobId && (clipFiles.length || localFolderPath || availableClips.length)) {
     btnRebuildOrder.classList.remove("hidden");
+    if (btnBuild) btnBuild.disabled = false;
   }
 }
 
@@ -3365,7 +3361,9 @@ async function runBuild(useCustomShotPlan = false) {
     fd.append("clear_custom_audio", "true");
   }
 
-  if (useCustomShotPlan && shotPlan && shotPlan.length) {
+  // Always send current timeline settings if shots exist, so all trims, grades,
+  // reframes, reverse states & zooms across all clips are automatically baked into the new MP4!
+  if (shotPlan && shotPlan.length) {
     fd.append("shot_plan", JSON.stringify(shotPlan));
   }
 
@@ -3427,7 +3425,7 @@ async function runBuild(useCustomShotPlan = false) {
   }
 }
 
-btnBuild.addEventListener("click", () => runBuild(false));
+btnBuild.addEventListener("click", () => runBuild(true));
 if (btnApplyTimeline) btnApplyTimeline.addEventListener("click", () => runBuild(true));
 if (btnRebuildOrder) btnRebuildOrder.addEventListener("click", () => runBuild(true));
 
@@ -4555,14 +4553,9 @@ window.addEventListener("keydown", (e) => {
   }
 });
 
-// ---------- Auto-Load Latest Built Job on Startup ----------
+// ---------- Startup Initialization: Start with Clean Blank Project ----------
 window.addEventListener("DOMContentLoaded", async () => {
   updateProjectSettingsUI();
   loadAvailableFonts();
-  try {
-    const res = await fetch("/api/job_state/ede3406fe924");
-    if (!res.ok) return;
-    const data = await res.json();
-    hydrateEditorFromJobState(data);
-  } catch (e) {}
+  closeCurrentJob();
 });
