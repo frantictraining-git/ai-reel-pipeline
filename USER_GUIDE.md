@@ -77,6 +77,17 @@ The timeline is designed to feel just like **DaVinci Resolve** and **Adobe Premi
 * Hover over the **right edge** to reveal the `]` handle. Drag it left or right to lengthen or shorten the clip.
 * **Auto-Scroll Runway:** There is a generous 650px blank runway past the end of the timeline. If you drag the last clip toward the edge of your screen, the timeline automatically scrolls horizontally with you!
 
+### Magnetic Snapping Tool (`🧲`)
+* **Toggle Snapping:** Click the **🧲 Magnet [ON]** button on the timeline toolbar, or tap the <kbd>N</kbd> key on your keyboard (the universal Premiere Pro / DaVinci Resolve snapping shortcut).
+* **Cyan Magnetic Guide Line:** When dragging clip trim handles, sliding text titles, or scrubbing the CTI playhead near a cut or layer boundary, an illuminated vertical cyan guide line (`#38BDF8`) snaps across all timeline tracks, locking your edit to the exact sub-frame.
+* **Magnetic Snap Targets:**
+  - **Video Cut Boundaries:** Snap text titles and playhead directly to shot transitions.
+  - **Playhead (CTI) Position:** Park the playhead on an audio beat or spoken cue, then drag a clip's trim edge to snap right to the playhead!
+  - **Text Track Boundaries:** Snap adjacent titles together without awkward gaps or text overlaps.
+  - **Custom Audio Start/End:** Snap video cuts and text layers precisely to musical drops or track starts.
+  - **Sequence Start (0.00s):** Easily align initial layers to the very first frame.
+* **Freeform Mode:** Tap <kbd>N</kbd> or click the magnet button to turn it into **🧲 Magnet [OFF]** whenever you want unrestricted, sub-pixel dragging without magnetic pull.
+
 ### Reversing Clips (`⏪`)
 * Click any clip on the V1 track, then click **⏪ Reverse** on the toolbar (or press <kbd>R</kbd>).
 * The clip will instantly show a `⏪ REV` badge and play backwards in full original 4K/1080p resolution in the monitor!
@@ -188,6 +199,7 @@ Have a camera card with 50+ mixed clips? Switch to the **Media Sorter** tab:
 | Shortcut | Action | Description |
 | :--- | :--- | :--- |
 | <kbd>Spacebar</kbd> | **Play / Pause** | Toggles sequence playback or active monitor preview |
+| <kbd>N</kbd> | **Magnet / Snapping** | Toggles magnetic snapping on/off across all timeline tracks |
 | <kbd>R</kbd> | **Reverse Clip** | Toggles reverse playback for the selected video shot |
 | <kbd>Delete</kbd> / <kbd>Backspace</kbd> | **Delete Layer** | Deletes the active text title, video shot, or audio track |
 | <kbd>⌘Z</kbd> | **Undo** | Reverts the last action (up to 10 steps back) |

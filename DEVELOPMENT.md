@@ -213,6 +213,22 @@ Clicking the timeline **`🗑️ Delete`** button or pressing <kbd>Delete</kbd> 
 - If a **Video Shot** is active: deletes the shot from `shotPlan` and updates the timeline.
 - All deletions push snapshot states to the 10-step Undo stack (<kbd>⌘Z</kbd>).
 
+### 5.5. Magnetic Snapping Engine (`🧲`)
+To ensure precision editing without gaps or micro-overlaps, the timeline implements a professional DaVinci Resolve / Premiere Pro snapping architecture:
+* **State & Activation:** `isMagnetEnabled` (boolean, defaults to `true`). Toggled via the timeline toolbar button (`#btn-tl-magnet`) or keyboard shortcut <kbd>N</kbd>.
+* **Snap Targets (`getTimelineSnapPoints`):**
+  1. Sequence Origin ($0.00\text{s}$).
+  2. Cumulative Video Cut Boundaries ($\sum_{k=0}^{i} \text{duration}_k$).
+  3. Text Title In/Out Points ($t_{\text{start}}$ and $t_{\text{start}} + t_{\text{dur}}$).
+  4. Audio Track In/Out Points ($t_{\text{audio\_in}}$ and $t_{\text{audio\_in}} + t_{\text{audio\_dur}}$).
+  5. Current CTI Playhead position ($t_{\text{playhead}}$).
+* **Threshold Math (`snapTimeToNearest`):**
+  Calculates pixel-per-second velocity:
+  $$\text{pxPerSec} = \frac{\text{trackWidth}}{\text{totalDuration}}, \quad \Delta t_{\text{thresh}} = \frac{10\text{ px}}{\text{pxPerSec}}$$
+  If $|\text{targetTime} - t_{\text{snap}}| \le \Delta t_{\text{thresh}}$, locks coordinate to $t_{\text{snap}}$.
+* **Visual Guide Line (`#tl-snap-guide`):**
+  Renders an absolute-positioned vertical guide across all tracks at $x = \text{originX} + \text{round}\left(\frac{t_{\text{snap}}}{\text{totalDuration}} \times \text{trackWidth}\right)$ styled in cyan (`#38BDF8`) with glowing blur. Automatically hidden on `mouseup`.
+
 ---
 
 ## 6. Project Manifest Schema (`project.reelproj`)

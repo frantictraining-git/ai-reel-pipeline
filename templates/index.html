@@ -822,6 +822,7 @@
           <span style="font-weight:600; font-size:12px; color:var(--text);">🎞️ Premiere Timeline</span>
           <span class="tl-stat" id="tl-summary">0 shots · 0.00s</span>
           <span class="mono nle-badge" id="tl-playhead-readout" style="color:var(--accent); font-weight:600; border-color:rgba(56,189,248,0.35); background:rgba(56,189,248,0.12);" title="Current Playhead Timecode">⏱️ 00:00.00</span>
+          <button type="button" id="btn-tl-magnet" class="btn btn-secondary btn-sm magnet-on" title="Snapping / Magnet Tool (N) — Snaps clips, text, and audio precisely to cuts, playhead & edges">🧲 Magnet [ON]</button>
           <span class="nle-badge" id="tl-hint">Drag clip edges [ ] left/right to trim · Drag body to reorder · Click to grade</span>
         </div>
         <div class="tl-tools-right">
@@ -843,6 +844,9 @@
       </div>
 
       <div class="timeline-tracks-wrap" id="timeline-tracks-wrap">
+        <!-- Magnetic Snapping Vertical Guide Line -->
+        <div class="tl-snap-guide" id="tl-snap-guide"></div>
+
         <!-- NLE Sequence Playhead (CTI) Indicator across all tracks -->
         <div class="tl-playhead" id="tl-playhead">
           <div class="tl-playhead-head" id="tl-playhead-head" title="Drag to scrub timeline">

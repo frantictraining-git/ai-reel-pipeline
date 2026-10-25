@@ -1449,6 +1449,18 @@ input[type="range"]::-webkit-slider-thumb:active {
   border-radius: 3px;
 }
 
+#btn-tl-magnet {
+  font-weight: 600;
+  transition: all 0.15s ease;
+}
+
+#btn-tl-magnet.magnet-on {
+  background: rgba(56, 189, 248, 0.2) !important;
+  border-color: #38BDF8 !important;
+  color: #38BDF8 !important;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.4) !important;
+}
+
 /* Timeline Bed (#1F2C38 instead of pitch black) */
 .timeline-tracks-wrap {
   flex: 1;
@@ -1462,6 +1474,23 @@ input[type="range"]::-webkit-slider-thumb:active {
   background: #1F2C38;
   box-shadow: inset 0 2px 6px rgba(15, 22, 28, 0.45);
   position: relative;
+}
+
+/* Magnetic Snapping Vertical Guide Line (DaVinci Resolve Style) */
+.tl-snap-guide {
+  position: absolute;
+  top: 8px;
+  bottom: 10px;
+  width: 2px;
+  background: #38BDF8;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.95), 0 0 3px rgba(255, 255, 255, 0.9);
+  pointer-events: none;
+  z-index: 99;
+  display: none;
+}
+
+.tl-snap-guide.active {
+  display: block;
 }
 
 /* NLE Sequence Playhead (Current Time Indicator) */

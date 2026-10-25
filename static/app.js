@@ -991,6 +991,9 @@ const btnMoveLeft = $("btn-move-left");
 const btnMoveRight = $("btn-move-right");
 const btnTlReverse = $("btn-tl-reverse");
 const btnTlDelete = $("btn-tl-delete");
+const btnTlMagnet = $("btn-tl-magnet");
+const tlSnapGuide = $("tl-snap-guide");
+let isMagnetEnabled = true;
 const btnInspReverse = $("btn-insp-reverse");
 const inspReverseState = $("insp-reverse-state");
 const btnRebuildOrder = $("btn-rebuild-order");
@@ -1399,6 +1402,125 @@ function updatePlayheadPosition(timeSec) {
   if (tlPlayheadReadout) {
     tlPlayheadReadout.textContent = `⏱️ ${formatTimecode(clampedTime)}`;
   }
+}
+
+// ==========================================
+// Magnetic Snapping Engine (DaVinci / Premiere Style)
+// ==========================================
+function toggleMagnetTool(forceState = null) {
+  if (forceState !== null) {
+    isMagnetEnabled = Boolean(forceState);
+  } else {
+    isMagnetEnabled = !isMagnetEnabled;
+  }
+  if (btnTlMagnet) {
+    if (isMagnetEnabled) {
+      btnTlMagnet.classList.add("magnet-on");
+      btnTlMagnet.textContent = "🧲 Magnet [ON]";
+      btnTlMagnet.title = "Snapping / Magnet Tool (N) — Snapping is ACTIVE";
+    } else {
+      btnTlMagnet.classList.remove("magnet-on");
+      btnTlMagnet.textContent = "🧲 Magnet [OFF]";
+      btnTlMagnet.title = "Snapping / Magnet Tool (N) — Snapping is MUTED";
+    }
+  }
+  if (!isMagnetEnabled) {
+    hideTimelineSnapGuide();
+  }
+}
+
+function showTimelineSnapGuide(timeSec, totalDurSec, trackWidthPx) {
+  if (!tlSnapGuide || !isMagnetEnabled || totalDurSec <= 0 || trackWidthPx <= 0) return;
+  const originX = getTimelineTrackOrigin();
+  const clampedTime = Math.max(0, Math.min(totalDurSec, Number(timeSec || 0)));
+  const leftPx = originX + Math.round((clampedTime / totalDurSec) * trackWidthPx);
+  tlSnapGuide.style.left = `${leftPx}px`;
+  tlSnapGuide.classList.add("active");
+}
+
+function hideTimelineSnapGuide() {
+  if (tlSnapGuide) {
+    tlSnapGuide.classList.remove("active");
+  }
+}
+
+/**
+ * Gathers all magnetic snap targets across Video cuts, Text boundaries, Audio, and Playhead.
+ * @param {string|number|null} excludeTextId - optional text item id to exclude
+ * @param {number|null} excludeCutTime - optional cut time to exclude
+ */
+function getTimelineSnapPoints(excludeTextId = null, excludeCutTime = null) {
+  const points = [0.0];
+
+  // 1. Video shot cut boundaries (cumulative durations)
+  if (shotPlan && shotPlan.length) {
+    let acc = 0;
+    for (let i = 0; i < shotPlan.length; i++) {
+      acc += Number(shotPlan[i].duration || 0);
+      const cutTime = Number(acc.toFixed(3));
+      if (excludeCutTime === null || Math.abs(cutTime - excludeCutTime) > 0.05) {
+        points.push(cutTime);
+      }
+    }
+  }
+
+  // 2. Text track item boundaries
+  if (textTrackItems && textTrackItems.length) {
+    for (const item of textTrackItems) {
+      if (excludeTextId && item.id === excludeTextId) continue;
+      const s = Number(item.start_time || 0);
+      const e = s + Number(item.duration || 0);
+      points.push(Number(s.toFixed(3)));
+      points.push(Number(e.toFixed(3)));
+    }
+  }
+
+  // 3. Audio track boundaries
+  const audioIn = Number(audioStartOffset || 0);
+  points.push(Number(audioIn.toFixed(3)));
+  if (audioDurationSec > 0.1) {
+    points.push(Number((audioIn + audioDurationSec).toFixed(3)));
+  }
+
+  // 4. Current CTI playhead time
+  try {
+    const playheadTime = getCurrentSequenceTime();
+    if (playheadTime > 0.05) {
+      points.push(Number(playheadTime.toFixed(3)));
+    }
+  } catch (err) {}
+
+  // Filter valid numbers, deduplicate, and sort ascending
+  return Array.from(new Set(points.filter((p) => !isNaN(p) && p >= 0))).sort((a, b) => a - b);
+}
+
+/**
+ * Snaps a target time to the closest snap point if within thresholdPx (default 10px).
+ * Returns { time: number, snapped: boolean }
+ */
+function snapTimeToNearest(targetTimeSec, totalDurSec, trackWidthPx, excludeTextId = null, thresholdPx = 10, excludeCutTime = null) {
+  if (!isMagnetEnabled || totalDurSec <= 0 || trackWidthPx <= 0) {
+    return { time: targetTimeSec, snapped: false };
+  }
+  const pxPerSec = trackWidthPx / totalDurSec;
+  const thresholdSec = thresholdPx / pxPerSec;
+
+  const points = getTimelineSnapPoints(excludeTextId, excludeCutTime);
+  let bestDist = Infinity;
+  let bestPoint = null;
+
+  for (const pt of points) {
+    const dist = Math.abs(pt - targetTimeSec);
+    if (dist <= thresholdSec && dist < bestDist) {
+      bestDist = dist;
+      bestPoint = pt;
+    }
+  }
+
+  if (bestPoint !== null) {
+    return { time: bestPoint, snapped: true };
+  }
+  return { time: targetTimeSec, snapped: false };
 }
 
 function startPlayheadAnimLoop() {
@@ -1816,8 +1938,23 @@ window.addEventListener("mousemove", (e) => {
       : 10.0;
     const rulerRect = tlRulerStrip.getBoundingClientRect();
     const mouseX = e.clientX - rulerRect.left;
-    const ratio = Math.max(0, Math.min(1, mouseX / rulerRect.width));
-    seekSequenceToTime(ratio * totalDur);
+    const trackWidth = rulerRect.width || 800;
+    const ratio = Math.max(0, Math.min(1, mouseX / trackWidth));
+    let scrubTime = ratio * totalDur;
+
+    if (isMagnetEnabled) {
+      const snapRes = snapTimeToNearest(scrubTime, totalDur, trackWidth, null, 8);
+      if (snapRes.snapped) {
+        scrubTime = snapRes.time;
+        showTimelineSnapGuide(snapRes.time, totalDur, trackWidth);
+      } else {
+        hideTimelineSnapGuide();
+      }
+    } else {
+      hideTimelineSnapGuide();
+    }
+
+    seekSequenceToTime(scrubTime);
 
     // Auto-scroll timeline tracks container if dragging near edges
     if (timelineTracksWrap) {
@@ -1843,7 +1980,20 @@ window.addEventListener("mousemove", (e) => {
       // Dragging left handle '[' moves In-Point in time, right edge stays fixed at (origStart + origDur)
       const fixedEnd = origStart + origDur;
       const minDur = 0.2;
-      const newStart = Math.max(0, Math.min(fixedEnd - minDur, origStart + deltaSec));
+      let newStart = Math.max(0, Math.min(fixedEnd - minDur, origStart + deltaSec));
+
+      if (isMagnetEnabled) {
+        const snapRes = snapTimeToNearest(newStart, totalDur, trackWidth, id, 10);
+        if (snapRes.snapped && snapRes.time <= fixedEnd - minDur) {
+          newStart = snapRes.time;
+          showTimelineSnapGuide(snapRes.time, totalDur, trackWidth);
+        } else {
+          hideTimelineSnapGuide();
+        }
+      } else {
+        hideTimelineSnapGuide();
+      }
+
       const newDur = Math.max(minDur, fixedEnd - newStart);
       item.start_time = Number(newStart.toFixed(2));
       item.duration = Number(newDur.toFixed(2));
@@ -1851,7 +2001,22 @@ window.addEventListener("mousemove", (e) => {
       // Dragging right handle ']' reduces/increases length in timeline, left edge stays fixed at origStart
       const minDur = 0.2;
       const maxDur = Math.max(minDur, totalDur - origStart);
-      const newDur = Math.max(minDur, Math.min(maxDur, origDur + deltaSec));
+      let newDur = Math.max(minDur, Math.min(maxDur, origDur + deltaSec));
+      let newEnd = origStart + newDur;
+
+      if (isMagnetEnabled) {
+        const snapRes = snapTimeToNearest(newEnd, totalDur, trackWidth, id, 10);
+        if (snapRes.snapped && snapRes.time >= origStart + minDur) {
+          newEnd = snapRes.time;
+          newDur = Math.max(minDur, Math.min(maxDur, newEnd - origStart));
+          showTimelineSnapGuide(snapRes.time, totalDur, trackWidth);
+        } else {
+          hideTimelineSnapGuide();
+        }
+      } else {
+        hideTimelineSnapGuide();
+      }
+
       item.duration = Number(newDur.toFixed(2));
     }
 
@@ -1892,7 +2057,24 @@ window.addEventListener("mousemove", (e) => {
     const dxPx = e.clientX - startX;
     const deltaSec = (dxPx / trackWidth) * totalDur;
     const maxStart = Math.max(0, totalDur - dur);
-    const newStart = Math.max(0, Math.min(maxStart, origStart + deltaSec));
+    let newStart = Math.max(0, Math.min(maxStart, origStart + deltaSec));
+
+    if (isMagnetEnabled) {
+      const snapStart = snapTimeToNearest(newStart, totalDur, trackWidth, id, 10);
+      const snapEnd = snapTimeToNearest(newStart + dur, totalDur, trackWidth, id, 10);
+      if (snapStart.snapped) {
+        newStart = Math.max(0, Math.min(maxStart, snapStart.time));
+        showTimelineSnapGuide(snapStart.time, totalDur, trackWidth);
+      } else if (snapEnd.snapped) {
+        newStart = Math.max(0, Math.min(maxStart, snapEnd.time - dur));
+        showTimelineSnapGuide(snapEnd.time, totalDur, trackWidth);
+      } else {
+        hideTimelineSnapGuide();
+      }
+    } else {
+      hideTimelineSnapGuide();
+    }
+
     item.start_time = Number(newStart.toFixed(2));
 
     // Direct pixel styling during slide
@@ -1917,6 +2099,8 @@ window.addEventListener("mousemove", (e) => {
 });
 
 window.addEventListener("mouseup", () => {
+  hideTimelineSnapGuide();
+
   if (isScrubbingPlayhead) {
     isScrubbingPlayhead = false;
     if (tlPlayhead) tlPlayhead.classList.remove("scrubbing");
@@ -2325,13 +2509,29 @@ window.addEventListener("mousemove", (e) => {
   if (side === "left") {
     // Dragging left edge '[' adjusts In-Point and inversely adjusts Duration
     const maxIn = Math.max(0, origIn + origDur - 0.15);
-    const newIn = Math.max(0, Math.min(maxIn, origIn + deltaSec));
-    const actualDelta = newIn - origIn;
-    const newDur = Math.max(0.15, origDur - actualDelta);
+    let newIn = Math.max(0, Math.min(maxIn, origIn + deltaSec));
+    let actualDelta = newIn - origIn;
+    let newDur = Math.max(0.15, origDur - actualDelta);
+    let newStartSec = Math.max(0, startSec + actualDelta);
+
+    if (isMagnetEnabled) {
+      const snapRes = snapTimeToNearest(newStartSec, totalDur, trackWidth, null, 10, startSec);
+      if (snapRes.snapped) {
+        newStartSec = snapRes.time;
+        actualDelta = newStartSec - startSec;
+        newIn = Math.max(0, Math.min(maxIn, origIn + actualDelta));
+        newDur = Math.max(0.15, origDur - actualDelta);
+        showTimelineSnapGuide(snapRes.time, totalDur, trackWidth);
+      } else {
+        hideTimelineSnapGuide();
+      }
+    } else {
+      hideTimelineSnapGuide();
+    }
+
     shot.in_point = Number(newIn.toFixed(2));
     shot.duration = Number(newDur.toFixed(2));
 
-    const newStartSec = Math.max(0, startSec + actualDelta);
     const leftPx = Math.round((newStartSec / totalDur) * trackWidth);
     const widthPx = Math.max(14, Math.round((newDur / totalDur) * trackWidth));
     if (cardEl) {
@@ -2349,7 +2549,22 @@ window.addEventListener("mousemove", (e) => {
     // Dragging right edge ']' adjusts Out-Point / Duration
     const actualClipDur = Math.max(Number(shot.clip_duration || 0), (sourcePreview && sourcePreview.duration > 0) ? sourcePreview.duration : 60.0);
     const maxDur = Math.max(0.5, actualClipDur - origIn);
-    const newDur = Math.max(0.15, Math.min(maxDur, origDur + deltaSec));
+    let newDur = Math.max(0.15, Math.min(maxDur, origDur + deltaSec));
+    let clipEndTime = startSec + newDur;
+
+    if (isMagnetEnabled) {
+      const snapRes = snapTimeToNearest(clipEndTime, totalDur, trackWidth, null, 10, startSec + origDur);
+      if (snapRes.snapped) {
+        clipEndTime = snapRes.time;
+        newDur = Math.max(0.15, Math.min(maxDur, clipEndTime - startSec));
+        showTimelineSnapGuide(snapRes.time, totalDur, trackWidth);
+      } else {
+        hideTimelineSnapGuide();
+      }
+    } else {
+      hideTimelineSnapGuide();
+    }
+
     shot.duration = Number(newDur.toFixed(2));
 
     const widthPx = Math.max(14, Math.round((newDur / totalDur) * trackWidth));
@@ -2379,6 +2594,7 @@ window.addEventListener("mousemove", (e) => {
 });
 
 window.addEventListener("mouseup", () => {
+  hideTimelineSnapGuide();
   if (activeEdgeTrim) {
     const trimmedIdx = activeEdgeTrim.idx;
     const wasLeft = activeEdgeTrim.side === "left";
@@ -2712,26 +2928,56 @@ window.addEventListener("mousemove", (e) => {
   if (!activeAudioTrimSide) return;
   const dx = e.clientX - audioTrimStartX;
   const totalSeqDur = shotPlan.reduce((acc, s) => acc + Number(s.duration || 0), 0) || 10.0;
-  const pxPerSec = Math.max(40, (tlRulerStrip ? tlRulerStrip.getBoundingClientRect().width : 600) / totalSeqDur);
+  const trackWidth = tlRulerStrip ? (tlRulerStrip.getBoundingClientRect().width || 600) : 600;
+  const pxPerSec = Math.max(40, trackWidth / totalSeqDur);
 
   if (activeAudioTrimSide === "left") {
     // Dragging left edge '[' adjusts Audio Start Offset and shrinks/grows length
     const deltaSec = dx / pxPerSec;
-    const newOffset = Math.max(0, Number((audioOrigOffset + deltaSec).toFixed(1)));
+    let newOffset = Math.max(0, Number((audioOrigOffset + deltaSec).toFixed(1)));
+
+    if (isMagnetEnabled) {
+      const snapRes = snapTimeToNearest(newOffset, totalSeqDur, trackWidth, null, 10);
+      if (snapRes.snapped) {
+        newOffset = snapRes.time;
+        showTimelineSnapGuide(snapRes.time, totalSeqDur, trackWidth);
+      } else {
+        hideTimelineSnapGuide();
+      }
+    } else {
+      hideTimelineSnapGuide();
+    }
+
     const actualDelta = newOffset - audioOrigOffset;
     audioStartOffset = newOffset;
     audioDurationSec = Math.max(0.5, Number((audioOrigDur - actualDelta).toFixed(1)));
     if (tlAudioClip) {
-      const nextW = Math.max(240, Math.round(audioOrigWidthPx - dx));
-      tlAudioClip.style.width = `${nextW}px`;
+      const aLeftPx = Math.round((newOffset / totalSeqDur) * trackWidth);
+      const ratio = Math.max(0.05, Math.min(2.0, audioDurationSec / totalSeqDur));
+      tlAudioClip.style.marginLeft = `${aLeftPx}px`;
+      tlAudioClip.style.width = `${Math.max(120, Math.round(trackWidth * ratio))}px`;
     }
   } else if (activeAudioTrimSide === "right") {
     // Dragging right edge ']' adjusts Audio Track Length / Out-Point
     const deltaSec = dx / pxPerSec;
-    audioDurationSec = Math.max(0.5, Number((audioOrigDur + deltaSec).toFixed(1)));
+    let rawEnd = audioOrigOffset + audioOrigDur + deltaSec;
+
+    if (isMagnetEnabled) {
+      const snapRes = snapTimeToNearest(rawEnd, totalSeqDur, trackWidth, null, 10);
+      if (snapRes.snapped && snapRes.time > audioStartOffset + 0.5) {
+        rawEnd = snapRes.time;
+        showTimelineSnapGuide(snapRes.time, totalSeqDur, trackWidth);
+      } else {
+        hideTimelineSnapGuide();
+      }
+    } else {
+      hideTimelineSnapGuide();
+    }
+
+    audioDurationSec = Math.max(0.5, Number((rawEnd - audioStartOffset).toFixed(1)));
     if (tlAudioClip) {
-      const nextW = Math.max(240, Math.round(audioOrigWidthPx + dx));
-      tlAudioClip.style.width = `${nextW}px`;
+      const ratio = Math.max(0.05, Math.min(2.0, audioDurationSec / totalSeqDur));
+      tlAudioClip.style.width = `${Math.max(120, Math.round(trackWidth * ratio))}px`;
     }
   }
   updateAudioTrackReadout();
@@ -2739,6 +2985,7 @@ window.addEventListener("mousemove", (e) => {
 });
 
 window.addEventListener("mouseup", () => {
+  hideTimelineSnapGuide();
   if (activeAudioTrimSide) {
     activeAudioTrimSide = null;
   }
@@ -4515,6 +4762,12 @@ if (btnTlDelete) {
   });
 }
 
+if (btnTlMagnet) {
+  btnTlMagnet.addEventListener("click", () => {
+    toggleMagnetTool();
+  });
+}
+
 function applyReframeToAllShots() {
   if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
   pushUndoState();
@@ -4641,6 +4894,12 @@ window.addEventListener("keydown", (e) => {
   if (!isTyping && !e.metaKey && !e.ctrlKey && !e.altKey && (e.key === "r" || e.key === "R")) {
     e.preventDefault();
     toggleReverseSelectedClip();
+    return;
+  }
+
+  if (!isTyping && !e.metaKey && !e.ctrlKey && !e.altKey && (e.key === "n" || e.key === "N")) {
+    e.preventDefault();
+    toggleMagnetTool();
     return;
   }
 
