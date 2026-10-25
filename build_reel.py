@@ -250,9 +250,10 @@ def render_text_overlay_png(texts_input, width: int, height: int, out_png: Path)
 _clip_hdr_cache = {}
 
 
-def get_clip_hdr_tonemap_filter(clip_path) -> str:
-    """Return zscale HLG/HDR to Rec.709 SDR tonemapping filter if clip is HDR, else empty string.
-    Matches macOS AVFoundation / Safari EDR highlight roll-off perfectly without blowing out whites."""
+def inspect_clip_color_profile(clip_path) -> dict:
+    """Inspect a video clip's color space, transfer characteristics, bit depth, and profile.
+    Distinguishes iPhone HLG HDR, Apple Log / flat profiles (Blackmagic Camera app),
+    HDR10/PQ, and standard Rec.709 SDR."""
     c_str = str(clip_path)
     if c_str in _clip_hdr_cache:
         return _clip_hdr_cache[c_str]
@@ -260,31 +261,115 @@ def get_clip_hdr_tonemap_filter(clip_path) -> str:
         cmd = [FFMPEG, "-i", c_str]
         res = subprocess.run(cmd, capture_output=True, text=True)
         out = res.stderr.lower()
-        if "arib-std-b67" in out or "bt2020" in out or "dovi" in out:
-            # iPhone 10-bit HLG (arib-std-b67) / Dolby Vision Profile 8.4
-            tonemap_vf = (
+
+        is_hlg = ("arib-std-b67" in out)
+        is_pq = ("smpte2084" in out)
+        is_bt2020 = ("bt2020" in out)
+        is_10bit = ("yuv420p10" in out or "yuv422p10" in out or "prores" in out)
+        is_apple_log = ("apple log" in out or "apple_log" in out or "applelog" in out)
+        is_dovi = ("dovi" in out)
+
+        profile = "sdr"
+        if is_apple_log:
+            profile = "log_apple"
+        elif is_hlg or (is_dovi and is_bt2020):
+            profile = "hdr_hlg"
+        elif is_pq:
+            profile = "hdr_pq"
+        elif is_bt2020 and is_10bit and not is_hlg and not is_pq:
+            # Wide gamut 10-bit log or flat profile (e.g. ProRes from Blackmagic / Apple Log without explicit tag)
+            profile = "flat_wide"
+        elif is_bt2020:
+            profile = "hdr_hlg"
+
+        info = {
+            "profile": profile,
+            "is_hlg": is_hlg,
+            "is_pq": is_pq,
+            "is_bt2020": is_bt2020,
+            "is_10bit": is_10bit,
+            "is_apple_log": is_apple_log,
+        }
+        _clip_hdr_cache[c_str] = info
+        return info
+    except Exception:
+        fallback = {
+            "profile": "sdr",
+            "is_hlg": False,
+            "is_pq": False,
+            "is_bt2020": False,
+            "is_10bit": False,
+            "is_apple_log": False,
+        }
+        _clip_hdr_cache[c_str] = fallback
+        return fallback
+
+
+def get_clip_color_filter(clip_path, hdr_output: bool) -> str:
+    """Intelligently adapt color pipeline based on clip's real color profile and user's HDR/SDR target.
+
+    Supports:
+      - Default iPhone Camera HDR (10-bit HLG / Dolby Vision Profile 8.4)
+      - Flat profile / Apple Log from Blackmagic Camera app & iPhone 15/16 Pro ProRes
+      - Standard Rec.709 SDR from mirrorless/DSLR
+      - HDR10 / PQ
+
+    When HDR output is selected:
+      - All footages export in true 10-bit HDR (BT.2020 HLG).
+      - HLG footage passes through in native 10-bit HDR without destructive tonemapping.
+      - SDR footages are mapped cleanly into BT.2020 HLG at ITU-R BT.2408 reference white.
+      - Log / Flat profiles preserve their wide gamut without HLG tonemap distortion.
+
+    When SDR output is selected:
+      - Only true HLG/PQ HDR footage is tonemapped to Rec.709 to prevent highlight blowout.
+      - SDR and Flat/Log footages pass through uncorrupted.
+    """
+    info = inspect_clip_color_profile(clip_path)
+    profile = info.get("profile", "sdr")
+
+    if hdr_output:
+        # EXPORTING IN 10-BIT HDR (BT.2020 HLG):
+        if profile == "hdr_hlg":
+            # Native iPhone HDR HLG: Already in BT.2020 HLG!
+            # Pass through 100% native extended dynamic range (no tonemapping)
+            return ""
+        elif profile == "hdr_pq":
+            # Convert PQ (smpte2084) to HLG (arib-std-b67)
+            return "zscale=tin=smpte2084:pin=bt2020:min=bt2020nc:t=arib-std-b67:p=bt2020:m=bt2020nc"
+        elif profile in ("log_apple", "flat_wide"):
+            # Flat/Log profile: Keep wide gamut for 10-bit color grading/LUTs
+            # No HLG tonemap! Pass through to BT.2020 master
+            return ""
+        elif profile == "sdr":
+            # Standard Rec.709 SDR in an HDR project:
+            # Map SDR diffuse white into BT.2020 HLG (ITU-R BT.2408 standard)
+            # so standard clips don't look dimmed or discolored next to HDR clips
+            return "zscale=tin=bt709:pin=bt709:min=bt709:t=arib-std-b67:p=bt2020:m=bt2020nc"
+    else:
+        # EXPORTING IN SDR (Rec.709):
+        if profile == "hdr_hlg":
+            # Only iPhone HLG gets HLG-to-SDR tonemap so highlights roll off gracefully
+            return (
                 "zscale=tin=arib-std-b67:pin=bt2020:min=bt2020nc,"
                 "zscale=t=linear:npl=200,"
                 "tonemap=hable:desat=0,"
                 "zscale=p=bt709:t=bt709:m=bt709:r=limited"
             )
-            _clip_hdr_cache[c_str] = tonemap_vf
-            return tonemap_vf
-        elif "smpte2084" in out:
-            # HDR10 / PQ
-            tonemap_vf = (
+        elif profile == "hdr_pq":
+            # PQ to SDR tonemap
+            return (
                 "zscale=tin=smpte2084:pin=bt2020:min=bt2020nc,"
                 "zscale=t=linear:npl=100,"
                 "tonemap=hable:desat=0,"
                 "zscale=p=bt709:t=bt709:m=bt709:r=limited"
             )
-            _clip_hdr_cache[c_str] = tonemap_vf
-            return tonemap_vf
-    except Exception:
-        pass
+        # SDR and Flat/Log: DO NOT APPLY TONEMAP! Pass through uncorrupted!
+        return ""
 
-    _clip_hdr_cache[c_str] = ""
-    return ""
+
+def get_clip_hdr_tonemap_filter(clip_path) -> str:
+    """Backward compatibility alias."""
+    return get_clip_color_filter(clip_path, hdr_output=False)
 
 
 def build_grade_filter(grade: dict, shot_dur: float, lut_path: str = None) -> str:
@@ -627,12 +712,10 @@ def build(
             # [in_point, in_point + use_duration] segment plays backwards.
             vf = f"trim=duration={use_duration:.3f},setpts=PTS-STARTPTS,reverse," + vf
 
-        # If rendering SDR and source is HDR (e.g. iPhone HLG/Dolby Vision),
-        # apply tonemapping first so highlights roll off with zero blowout, matching the live preview monitor.
-        if not hdr_output:
-            hdr_tm = get_clip_hdr_tonemap_filter(clip)
-            if hdr_tm:
-                vf = f"{hdr_tm},{vf}"
+        # Apply intelligent profile-aware color management (HDR master vs SDR)
+        color_vf = get_clip_color_filter(clip, hdr_output=hdr_output)
+        if color_vf:
+            vf = f"{color_vf},{vf}"
 
         grade_vf = build_grade_filter(item.get("grade"), duration, lut_path=lut_path)
         if grade_vf:

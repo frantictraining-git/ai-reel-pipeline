@@ -448,6 +448,46 @@ body.nle-body {
   flex-shrink: 0;
 }
 
+/* Dedicated HDR Editing & Master Toggle */
+.btn-hdr-toggle {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10.5px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: var(--radius);
+  transition: all 0.2s ease;
+  cursor: pointer;
+  background: linear-gradient(180deg, #4E6A83 0%, #33475A 100%);
+  border: 1px solid var(--border-dark);
+  color: #B7C6D3;
+}
+
+.btn-hdr-toggle .hdr-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #B7C6D3;
+  display: inline-block;
+  transition: all 0.2s ease;
+}
+
+.btn-hdr-toggle.active {
+  background: rgba(245, 158, 11, 0.2) !important;
+  border-color: #F59E0B !important;
+  color: #FCD34D !important;
+  font-weight: 700;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.35);
+  text-shadow: 0 0 6px rgba(245, 158, 11, 0.5);
+}
+
+.btn-hdr-toggle.active .hdr-dot {
+  background: #F59E0B;
+  box-shadow: 0 0 8px #F59E0B;
+}
+
 .monitor-tabs {
   display: flex;
   gap: 6px;

@@ -134,19 +134,76 @@ function enableStep(stepEl) {
   if (stepEl) stepEl.classList.remove("disabled");
 }
 
-// ---------- Project Settings Modal (Dimension & Frame Rate) ----------
+// ---------- Project Settings Modal (Dimension, Frame Rate & 10-bit HDR) ----------
 const settingsBackdrop = $("settings-modal-backdrop");
 const btnOpenSettings = $("btn-open-settings");
 const btnCloseSettings = $("btn-close-settings");
 const btnSaveSettings = $("btn-save-settings");
 const selDimension = $("setting-dimension");
 const selFps = $("setting-fps");
+const selColorSpace = $("setting-color-space");
 const monitorInfo = $("monitor-info");
 const reframeViewport = $("reframe-viewport");
+const btnToggleHdr = $("btn-toggle-hdr");
+const hdrBtnLabel = $("hdr-btn-label");
+const inspHdrIndicator = $("insp-hdr-indicator");
+const exportHdr = $("export-hdr");
+
+// Project HDR Mode (persisted in localStorage and project settings)
+let projectHdrOutput = false;
+try {
+  const savedHdr = localStorage.getItem("reel_project_hdr");
+  if (savedHdr !== null) projectHdrOutput = savedHdr === "true";
+} catch (e) {}
+
+function setProjectHdrMode(enabled) {
+  projectHdrOutput = Boolean(enabled);
+  try {
+    localStorage.setItem("reel_project_hdr", projectHdrOutput ? "true" : "false");
+  } catch (e) {}
+
+  if (btnToggleHdr) {
+    btnToggleHdr.classList.toggle("active", projectHdrOutput);
+    btnToggleHdr.title = projectHdrOutput
+      ? "☀️ 10-bit HDR Editing & Master Active (BT.2020 · HLG) — Click to switch to SDR"
+      : "Standard SDR Active (Rec.709) — Click to switch to 10-bit HDR Master";
+  }
+  if (hdrBtnLabel) {
+    hdrBtnLabel.textContent = projectHdrOutput ? "☀️ HDR [ON]" : "☀️ HDR [OFF]";
+  }
+  if (selColorSpace) {
+    selColorSpace.value = projectHdrOutput ? "hdr" : "sdr";
+  }
+  if (exportHdr) {
+    exportHdr.checked = projectHdrOutput;
+  }
+  if (inspHdrIndicator) {
+    inspHdrIndicator.classList.toggle("hidden", !projectHdrOutput);
+  }
+  updateProjectSettingsUI();
+  markTimelineDirty();
+}
+
+if (btnToggleHdr) {
+  btnToggleHdr.addEventListener("click", () => {
+    setProjectHdrMode(!projectHdrOutput);
+    const hint = $("tl-hint");
+    if (hint) {
+      hint.textContent = projectHdrOutput
+        ? "☀️ 10-bit HDR Editing & Master Active (BT.2020 · HLG). All footages will export in full HDR!"
+        : "Standard Dynamic Range (SDR · Rec.709) Active.";
+    }
+  });
+}
+
+if (exportHdr) {
+  exportHdr.addEventListener("change", (e) => setProjectHdrMode(e.target.checked));
+}
 
 function updateProjectSettingsUI() {
   if (monitorInfo) {
-    monitorInfo.textContent = `${projectWidth} × ${projectHeight} · ${projectFps} FPS ⚙`;
+    const hdrTag = projectHdrOutput ? " · ☀️ HDR" : "";
+    monitorInfo.textContent = `${projectWidth} × ${projectHeight} · ${projectFps} FPS${hdrTag} ⚙`;
   }
   if (reframeViewport) {
     reframeViewport.style.aspectRatio = `${projectWidth} / ${projectHeight}`;
@@ -164,6 +221,7 @@ function openSettingsModal() {
   if (!settingsBackdrop) return;
   if (selDimension) selDimension.value = `${projectWidth}x${projectHeight}`;
   if (selFps) selFps.value = String(projectFps);
+  if (selColorSpace) selColorSpace.value = projectHdrOutput ? "hdr" : "sdr";
   settingsBackdrop.classList.remove("hidden");
 }
 
@@ -191,7 +249,11 @@ if (btnSaveSettings) {
     if (selFps && selFps.value) {
       projectFps = parseFloat(selFps.value) || 30;
     }
-    updateProjectSettingsUI();
+    if (selColorSpace) {
+      setProjectHdrMode(selColorSpace.value === "hdr");
+    } else {
+      updateProjectSettingsUI();
+    }
     closeSettingsModal();
     markTimelineDirty();
   });
@@ -4012,8 +4074,7 @@ async function runBuild(useCustomShotPlan = false) {
   fd.append("audio_in", String(audioStartOffset || 0));
   fd.append("audio_duration", String(audioDurationSec || 0));
   fd.append("audio_volume", String((audioVolumePct / 100.0).toFixed(2)));
-  const hdrCb = $("export-hdr");
-  fd.append("hdr_output", hdrCb && hdrCb.checked ? "true" : "false");
+  fd.append("hdr_output", projectHdrOutput ? "true" : "false");
 
   if (lutFile) {
     fd.append("lut_file", lutFile);
@@ -4653,7 +4714,11 @@ function hydrateEditorFromJobState(data) {
     projectWidth = parseInt(data.settings.width, 10) || 1080;
     projectHeight = parseInt(data.settings.height, 10) || 1920;
     projectFps = parseFloat(data.settings.fps) || 30;
-    updateProjectSettingsUI();
+    if (data.settings.hdr_output !== undefined) {
+      setProjectHdrMode(data.settings.hdr_output === true || data.settings.hdr_output === "true");
+    } else {
+      updateProjectSettingsUI();
+    }
   }
 
   if (data.rhythm) {
@@ -4809,7 +4874,7 @@ if (btnSaveProject) {
         body: JSON.stringify({
           job_id: jobId,
           job_name: nameVal,
-          settings: { width: projectWidth, height: projectHeight, fps: projectFps },
+          settings: { width: projectWidth, height: projectHeight, fps: projectFps, hdr_output: projectHdrOutput },
           shot_plan: shotPlan,
           text_track: textTrackItems,
           local_folder: localFolderPath,

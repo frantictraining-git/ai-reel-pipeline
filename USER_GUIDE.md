@@ -139,9 +139,15 @@ Click any clip on the timeline and explore the **Inspector Panel** on the right:
 * **Vignette:** Add natural optical lens falloff to draw the viewer's eyes directly to the center of the dish or subject.
 * **Fades:** Add smooth fade-from-black or fade-to-black transitions in tenths of a second.
 * **3D LUT Support:** Click **Load .CUBE LUT** to apply your favorite DaVinci Resolve or camera manufacturer color grading LUTs (`.cube`).
-* **1:1 WYSIWYG Monitor-to-Bake Color Parity:**
-  - What you see in the Live Sequence & Reframe monitor is rendered identically in your final master video file down to the exact highlight roll-off and RGB gain.
-  - **Automatic iPhone HDR (HLG BT.2020) Tonemapping:** When shooting on iPhone 12 through 16 Pro Max (Apple HLG / Dolby Vision Profile 8.4), Reel Pipeline automatically tone-maps the 1000-nit extended dynamic range to Rec.709 SDR using broadcast-standard Hable curve compression. Ice cubes, glassware, lime slices, and bright backlights maintain their rich texture without ever blowing out into harsh nuclear white.
+* **1:1 WYSIWYG Monitor-to-Bake Color Parity & ☀️ Dedicated HDR Toggle:**
+  - **☀️ HDR [ON] / [OFF] Button:** Located right on the center monitor toolbar, this button switches between **10-bit HDR Master (BT.2020 · HLG)** and **Standard SDR (Rec.709)** editing and export modes in a single click.
+  - **When HDR Mode is ON (`☀️ HDR [ON]`):**
+    - The entire project renders to **10-bit HEVC (`hvc1`, `yuv420p10le`, `bt2020`, `arib-std-b67`)**, perfect for Instagram HDR Reels and YouTube Shorts 4K HDR.
+    - **Default iPhone Camera HDR (`arib-std-b67` HLG):** Passes through in full native 10-bit HDR with zero SDR tonemapping compression, keeping 1000-nit highlights shining.
+    - **Apple Log & Flat Profiles (Blackmagic Camera App / ProRes 422 HQ):** Wide color gamut is fully preserved in 10-bit for precision LUT and manual grading, without arbitrary HLG curve distortion.
+    - **Standard SDR Footages (Rec.709):** In an HDR project, standard SDR clips are mapped into the BT.2020 HLG container at reference broadcast diffuse white (75% code value / 203 nits per ITU-R BT.2408), preventing discolored or dimmed playback alongside HDR shots.
+  - **When HDR Mode is OFF (`☀️ HDR [OFF]`):**
+    - The sequence exports in standard Rec.709 SDR. Only true iPhone HLG footage receives gentle highlight roll-off so glassware, ice cubes, and lights match the monitor without blowing out into nuclear white. Flat profiles and SDR clips pass through uncorrupted.
 
 ---
 

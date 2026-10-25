@@ -288,6 +288,19 @@
         </div>
       </div>
 
+      <div class="modal-field">
+        <label for="setting-color-space">Dynamic Range & Color Pipeline</label>
+        <div class="tactile-select-wrap">
+          <select id="setting-color-space">
+            <option value="sdr" selected>SDR — Standard Dynamic Range (Rec.709)</option>
+            <option value="hdr">☀️ 10-bit HDR Master (BT.2020 · HLG) — Instagram HDR & Shorts 4K HDR</option>
+          </select>
+        </div>
+        <div style="font-size:10px; color:var(--text-dim); margin-top:4px;">
+          ☀️ HDR Mode exports all footages in 10-bit HEVC (hvc1, BT.2020 HLG), preserving full dynamic range from iPhone camera HDR, Apple Log & Blackmagic ProRes.
+        </div>
+      </div>
+
       <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:16px;">
         <button type="button" id="btn-save-settings" class="btn btn-primary">Apply Settings</button>
       </div>
@@ -422,7 +435,13 @@
             <button class="monitor-tab" id="tab-reference" style="display:none;" title="View original reference video used for beat-syncing">🎬 Reference Reel</button>
             <button class="monitor-tab" id="tab-program">Rendered Master File</button>
           </div>
-          <div class="monitor-info-pill" id="monitor-info" title="Click to change resolution & frame rate">1080 × 1920 · 30 FPS ⚙</div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <button type="button" id="btn-toggle-hdr" class="btn btn-secondary btn-xs btn-hdr-toggle" title="Toggle 10-bit HDR (BT.2020 · HLG) Editing & Export Master">
+              <span class="hdr-dot"></span>
+              <span id="hdr-btn-label">☀️ HDR [OFF]</span>
+            </button>
+            <div class="monitor-info-pill" id="monitor-info" title="Click to change resolution, frame rate & HDR mode">1080 × 1920 · 30 FPS ⚙</div>
+          </div>
         </div>
 
         <div class="monitor-stage" id="monitor-stage">
@@ -567,6 +586,10 @@
 
               <!-- SUBTAB 2: COLOR GRADING, LEVELS, CURVES, LUT & FADE -->
               <div id="insp-pane-color" class="hidden">
+                <div id="insp-hdr-indicator" class="hidden" style="margin-bottom:8px; padding:4px 8px; background:rgba(245, 158, 11, 0.15); border:1px solid rgba(245, 158, 11, 0.45); border-radius:var(--radius); font-size:10px; font-weight:700; color:#F59E0B; display:flex; align-items:center; justify-content:space-between;">
+                  <span>☀️ 10-BIT HDR EDITING ACTIVE</span>
+                  <span style="font-size:9.5px; color:#FCD34D; font-weight:normal;">BT.2020 · HLG</span>
+                </div>
                 <div class="grade-grid">
                   <div class="grade-row">
                     <label><span>Brightness</span><span class="mono" id="val-grade-brightness">0</span></label>

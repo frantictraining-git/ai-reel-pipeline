@@ -412,6 +412,20 @@ def api_build():
     except Exception as e:
         return jsonify({"error": f"Build failed: {e}"}), 500
 
+    meta_path = jdir / "meta.json"
+    if meta_path.exists():
+        try:
+            m = json.loads(meta_path.read_text())
+            if "settings" not in m:
+                m["settings"] = {}
+            m["settings"]["width"] = width
+            m["settings"]["height"] = height
+            m["settings"]["fps"] = fps
+            m["settings"]["hdr_output"] = hdr_output
+            meta_path.write_text(json.dumps(m, indent=2))
+        except Exception:
+            pass
+
     available_clips = sorted(
         [p.name for p in Path(clips_dir).iterdir() if p.suffix.lower() in {".mp4", ".mov", ".m4v", ".mkv", ".avi", ".webm"} and not p.name.startswith(".")]
     )
