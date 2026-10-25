@@ -1196,6 +1196,23 @@ function switchInspectorSubtab(subtab) {
   else if (subtab === "text") activeInspectorSubtab = "text";
   else activeInspectorSubtab = "trim";
 
+  if (activeInspectorSubtab === "text") {
+    if (inspEmpty) inspEmpty.classList.add("hidden");
+    if (inspControls) inspControls.classList.remove("hidden");
+    if (inspShotBadge) inspShotBadge.textContent = selectedTextTrackId ? "Text Layer Selected" : "Timeline Text Track (T1)";
+    populateTextControls();
+  } else {
+    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) {
+      if (inspEmpty) inspEmpty.classList.remove("hidden");
+      if (inspControls) inspControls.classList.add("hidden");
+      if (inspShotBadge) inspShotBadge.textContent = "No shot selected";
+    } else {
+      if (inspEmpty) inspEmpty.classList.add("hidden");
+      if (inspControls) inspControls.classList.remove("hidden");
+      if (inspShotBadge) inspShotBadge.textContent = `Shot #${String(selectedShotIdx + 1).padStart(2, "0")}`;
+    }
+  }
+
   if (inspPaneTrim) inspPaneTrim.classList.toggle("hidden", activeInspectorSubtab !== "trim");
   if (inspPaneColor) inspPaneColor.classList.toggle("hidden", activeInspectorSubtab !== "color");
   if (inspPaneText) inspPaneText.classList.toggle("hidden", activeInspectorSubtab !== "text");
@@ -1280,14 +1297,13 @@ function applyTimelineTextOverlayToPreview(currentTime = null) {
   const scaleRatio = vpW / (projectWidth || 1080);
 
   const activeItems = textTrackItems.filter((t) => {
+    const isSelected = !isPlayingSequence && t.id === selectedTextTrackId;
+    if (isSelected) return true;
     const raw = (t.content || "").trim();
     if (!raw) return false;
     const tStart = Number(t.start_time || 0);
     const tEnd = tStart + Math.max(0.1, Number(t.duration || 1.0));
-    const inRange = viewTime >= tStart - 0.05 && viewTime <= tEnd + 0.05;
-    if (inRange) return true;
-    if (!isPlayingSequence && t.id === selectedTextTrackId) return true;
-    return false;
+    return viewTime >= tStart - 0.05 && viewTime <= tEnd + 0.05;
   });
 
   activeItems.forEach((t) => {
@@ -1298,7 +1314,12 @@ function applyTimelineTextOverlayToPreview(currentTime = null) {
 
     const badge = document.createElement("span");
     badge.className = "text-preview-badge";
-    badge.textContent = t.content;
+    const textStr = t.content !== undefined && t.content !== null ? String(t.content) : "";
+    badge.textContent = textStr || (isSelected ? "Type text…" : "");
+    if (!textStr && isSelected) {
+      badge.style.opacity = "0.75";
+      badge.style.fontStyle = "italic";
+    }
 
     const pxSize = Math.max(11, Math.round(Number(t.size || 56) * scaleRatio));
     const rawFont = t.font || "Arial Bold";
@@ -1345,7 +1366,7 @@ function applyTimelineTextOverlayToPreview(currentTime = null) {
     }
 
     const posX = Math.max(5, Math.min(95, Number(t.x !== undefined ? t.x : 50)));
-    const posY = Math.max(5, Math.min(95, Number(t.y !== undefined ? t.y : 82)));
+    const posY = Math.max(5, Math.min(95, Number(t.y !== undefined ? t.y : 80)));
     badgeWrap.style.left = `${posX.toFixed(1)}%`;
     badgeWrap.style.top = `${posY.toFixed(1)}%`;
 
@@ -1363,7 +1384,18 @@ function applyTimelineTextOverlayToPreview(currentTime = null) {
       dragStartX = e.clientX;
       dragStartY = e.clientY;
       dragOrigTxtX = Number(t.x !== undefined ? t.x : 50);
-      dragOrigTxtY = Number(t.y !== undefined ? t.y : 82);
+      dragOrigTxtY = Number(t.y !== undefined ? t.y : 80);
+    });
+
+    // Double-click on screen to immediately focus editor
+    badgeWrap.addEventListener("dblclick", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      selectTextTrackItem(t.id);
+      if (txtOverlayContent) {
+        txtOverlayContent.focus();
+        txtOverlayContent.select();
+      }
     });
 
     textPreviewContainer.appendChild(badgeWrap);
@@ -1454,6 +1486,16 @@ function renderTextTrack() {
     card.addEventListener("click", (e) => {
       e.stopPropagation();
       selectTextTrackItem(item.id);
+    });
+
+    // Double-click to focus text input immediately
+    card.addEventListener("dblclick", (e) => {
+      e.stopPropagation();
+      selectTextTrackItem(item.id);
+      if (txtOverlayContent) {
+        txtOverlayContent.focus();
+        txtOverlayContent.select();
+      }
     });
 
     // Left Handle Trim
@@ -1666,17 +1708,16 @@ if (reframeViewport) {
   });
 
   window.addEventListener("mousemove", (e) => {
-    if (isDraggingText && selectedShotIdx >= 0 && selectedShotIdx < shotPlan.length) {
+    if (isDraggingText) {
       const rect = reframeViewport.getBoundingClientRect();
       if (!rect.width || !rect.height) return;
       const dxPct = ((e.clientX - dragStartX) / rect.width) * 100;
       const dyPct = ((e.clientY - dragStartY) / rect.height) * 100;
-      const texts = ensureShotTexts(shotPlan[selectedShotIdx]);
-      if (texts[activeTextItemIdx]) {
-        const cur = texts[activeTextItemIdx];
+      const cur = getSelectedTextTrackItem();
+      if (cur) {
         cur.x = Math.max(5, Math.min(95, dragOrigTxtX + dxPct));
         cur.y = Math.max(5, Math.min(95, dragOrigTxtY + dyPct));
-        applyTextOverlayToPreview();
+        applyTimelineTextOverlayToPreview();
         if (txtPosReadout) {
           txtPosReadout.textContent = `Position: X ${Math.round(cur.x)}% · Y ${Math.round(cur.y)}% (Drag text in monitor to move)`;
         }
@@ -2253,10 +2294,18 @@ function populateGradingControls(shot) {
 }
 
 function populateInspector() {
+  if (activeInspectorSubtab === "text") {
+    if (inspEmpty) inspEmpty.classList.add("hidden");
+    if (inspControls) inspControls.classList.remove("hidden");
+    if (inspShotBadge) inspShotBadge.textContent = selectedTextTrackId ? "Text Layer Selected" : "Timeline Text Track (T1)";
+    populateTextControls();
+    return;
+  }
+
   if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) {
-    inspEmpty.classList.remove("hidden");
-    inspControls.classList.add("hidden");
-    inspShotBadge.textContent = "No shot selected";
+    if (inspEmpty) inspEmpty.classList.remove("hidden");
+    if (inspControls) inspControls.classList.add("hidden");
+    if (inspShotBadge) inspShotBadge.textContent = "No shot selected";
     return;
   }
 
@@ -2266,9 +2315,9 @@ function populateInspector() {
   if (shot.pan_y === undefined) shot.pan_y = 0;
   ensureShotGrade(shot);
 
-  inspEmpty.classList.add("hidden");
-  inspControls.classList.remove("hidden");
-  inspShotBadge.textContent = `Shot #${String(selectedShotIdx + 1).padStart(2, "0")}`;
+  if (inspEmpty) inspEmpty.classList.add("hidden");
+  if (inspControls) inspControls.classList.remove("hidden");
+  if (inspShotBadge) inspShotBadge.textContent = `Shot #${String(selectedShotIdx + 1).padStart(2, "0")}`;
 
   inspClipSelect.innerHTML = "";
   const pool = availableClips.length ? availableClips : [shot.clip];
@@ -2288,255 +2337,206 @@ function populateInspector() {
   inspDuration.value = Number(shot.duration || 1.0).toFixed(2);
 
   populateGradingControls(shot);
-  populateTextControls(shot);
+  populateTextControls();
   applyReframeTransformToPreview();
 }
 
-function populateTextControls(shot) {
-  if (!shot) return;
-  const texts = ensureShotTexts(shot);
-  renderTextItemPills(shot);
+function populateTextControls() {
+  renderTextItemPills();
 
-  if (!texts.length) {
+  if (!textTrackItems.length) {
     if (txtSelectedEditor) txtSelectedEditor.classList.add("hidden");
     return;
   }
   if (txtSelectedEditor) txtSelectedEditor.classList.remove("hidden");
 
-  if (activeTextItemIdx < 0 || activeTextItemIdx >= texts.length) {
-    activeTextItemIdx = 0;
-  }
-  const t = texts[activeTextItemIdx];
+  const item = getSelectedTextTrackItem();
+  if (!item) return;
 
   if (txtOverlayContent && document.activeElement !== txtOverlayContent) {
-    txtOverlayContent.value = t.content || "";
+    txtOverlayContent.value = item.content || "";
   }
-  if (selTxtFont) selTxtFont.value = t.font || "Arial Bold";
-  if (selTxtBgStyle) selTxtBgStyle.value = t.bg_style || "plain";
-  if (slTxtSize) slTxtSize.value = t.size || 56;
-  if (valTxtSize) valTxtSize.textContent = `${t.size || 56}px`;
-  if (colTxtColor) colTxtColor.value = t.color || "#FFFFFF";
-  if (colTxtBg) colTxtBg.value = t.bg_color || "#1F2C38";
+  if (numTxtStart && document.activeElement !== numTxtStart) {
+    numTxtStart.value = Number(item.start_time || 0).toFixed(2);
+  }
+  if (numTxtDur && document.activeElement !== numTxtDur) {
+    numTxtDur.value = Number(item.duration || 1.0).toFixed(2);
+  }
+  if (selTxtFont) selTxtFont.value = item.font || "Arial Bold";
+  if (selTxtBgStyle) selTxtBgStyle.value = item.bg_style || "plain";
+  if (slTxtSize) slTxtSize.value = item.size || 56;
+  if (valTxtSize) valTxtSize.textContent = `${item.size || 56}px`;
+  if (colTxtColor) colTxtColor.value = item.color || "#FFFFFF";
+  if (colTxtBg) colTxtBg.value = item.bg_color || "#1F2C38";
   if (txtPosReadout) {
-    txtPosReadout.textContent = `Position: X ${Math.round(t.x !== undefined ? t.x : 50)}% · Y ${Math.round(t.y !== undefined ? t.y : 82)}% (Drag text in monitor to move)`;
+    txtPosReadout.textContent = `Position: X ${Math.round(item.x !== undefined ? item.x : 50)}% · Y ${Math.round(item.y !== undefined ? item.y : 80)}% (Drag text in monitor to move)`;
   }
 }
 
 if (btnTxtAddItem) {
   btnTxtAddItem.addEventListener("click", () => {
-    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
-    pushUndoState();
-    const shot = shotPlan[selectedShotIdx];
-    const texts = ensureShotTexts(shot);
-    const nextY = texts.length === 0 ? 82 : texts.length === 1 ? 50 : texts.length === 2 ? 20 : Math.max(15, Math.min(85, 50 + (texts.length * 7)));
-    const newText = defaultTextOverlay(nextY);
-    newText.content = `Title #${texts.length + 1}`;
-    texts.push(newText);
-    shot.text = texts[0];
-    activeTextItemIdx = texts.length - 1;
+    addNewTextTrackItem();
+  });
+}
 
-    populateTextControls(shot);
-    applyTextOverlayToPreview();
-    renderTimelineTrack();
-    markTimelineDirty();
-    if (txtOverlayContent) {
-      txtOverlayContent.focus();
-      txtOverlayContent.select();
-    }
+if (btnAddTimelineText) {
+  btnAddTimelineText.addEventListener("click", (e) => {
+    e.stopPropagation();
+    addNewTextTrackItem();
   });
 }
 
 if (btnTxtDuplicate) {
   btnTxtDuplicate.addEventListener("click", () => {
-    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
-    const shot = shotPlan[selectedShotIdx];
-    const texts = ensureShotTexts(shot);
-    if (!texts.length || activeTextItemIdx < 0 || activeTextItemIdx >= texts.length) return;
-    pushUndoState();
-    const cloned = JSON.parse(JSON.stringify(texts[activeTextItemIdx]));
-    cloned.y = Math.min(92, (cloned.y || 82) + 8);
-    texts.push(cloned);
-    shot.text = texts[0];
-    activeTextItemIdx = texts.length - 1;
-
-    populateTextControls(shot);
-    applyTextOverlayToPreview();
-    renderTimelineTrack();
-    markTimelineDirty();
+    duplicateSelectedTextTrackItem();
   });
 }
 
 if (btnTxtDeleteSelected) {
   btnTxtDeleteSelected.addEventListener("click", () => {
-    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
-    const shot = shotPlan[selectedShotIdx];
-    const texts = ensureShotTexts(shot);
-    if (!texts.length) return;
-    pushUndoState();
-    texts.splice(activeTextItemIdx, 1);
-    if (activeTextItemIdx >= texts.length) activeTextItemIdx = Math.max(0, texts.length - 1);
-    shot.text = texts.length ? texts[0] : defaultTextOverlay();
-
-    populateTextControls(shot);
-    applyTextOverlayToPreview();
-    renderTimelineTrack();
-    markTimelineDirty();
+    deleteSelectedTextTrackItem();
   });
 }
 
 if (txtOverlayContent) {
   txtOverlayContent.addEventListener("focus", () => {
-    if (selectedShotIdx >= 0 && selectedShotIdx < shotPlan.length) pushUndoState();
+    pushUndoState();
   });
   txtOverlayContent.addEventListener("input", () => {
-    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
-    const shot = shotPlan[selectedShotIdx];
-    const texts = ensureShotTexts(shot);
-    if (!texts.length) {
-      texts.push(defaultTextOverlay());
-      activeTextItemIdx = 0;
+    let item = getSelectedTextTrackItem();
+    if (!item) {
+      addNewTextTrackItem();
+      item = getSelectedTextTrackItem();
     }
-    const t = texts[activeTextItemIdx];
-    t.content = txtOverlayContent.value;
-    shot.text = texts[0];
-    showMonitorTab("source");
-    applyTextOverlayToPreview();
-    renderTextItemPills(shot);
-    renderTimelineTrack();
+    if (!item) return;
+    item.content = txtOverlayContent.value;
+
+    applyTimelineTextOverlayToPreview();
+    renderTextTrack();
+    renderTextItemPills();
+    markTimelineDirty();
+  });
+}
+
+if (numTxtStart) {
+  numTxtStart.addEventListener("change", () => {
+    const item = getSelectedTextTrackItem();
+    if (!item) return;
+    pushUndoState();
+    const val = Math.max(0, parseFloat(numTxtStart.value) || 0);
+    item.start_time = Number(val.toFixed(2));
+    numTxtStart.value = item.start_time.toFixed(2);
+    renderTextTrack();
+    applyTimelineTextOverlayToPreview(item.start_time);
+    markTimelineDirty();
+  });
+}
+
+if (numTxtDur) {
+  numTxtDur.addEventListener("change", () => {
+    const item = getSelectedTextTrackItem();
+    if (!item) return;
+    pushUndoState();
+    const val = Math.max(0.2, parseFloat(numTxtDur.value) || 1.0);
+    item.duration = Number(val.toFixed(2));
+    numTxtDur.value = item.duration.toFixed(2);
+    renderTextTrack();
+    applyTimelineTextOverlayToPreview(item.start_time);
     markTimelineDirty();
   });
 }
 
 if (selTxtFont) {
   selTxtFont.addEventListener("change", () => {
-    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+    const item = getSelectedTextTrackItem();
+    if (!item) return;
     pushUndoState();
-    const shot = shotPlan[selectedShotIdx];
-    const texts = ensureShotTexts(shot);
-    if (texts[activeTextItemIdx]) {
-      texts[activeTextItemIdx].font = selTxtFont.value;
-      shot.text = texts[0];
-      showMonitorTab("source");
-      applyTextOverlayToPreview();
-      markTimelineDirty();
-    }
+    item.font = selTxtFont.value;
+    applyTimelineTextOverlayToPreview();
+    markTimelineDirty();
   });
 }
 
 if (selTxtBgStyle) {
   selTxtBgStyle.addEventListener("change", () => {
-    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+    const item = getSelectedTextTrackItem();
+    if (!item) return;
     pushUndoState();
-    const shot = shotPlan[selectedShotIdx];
-    const texts = ensureShotTexts(shot);
-    if (texts[activeTextItemIdx]) {
-      texts[activeTextItemIdx].bg_style = selTxtBgStyle.value;
-      shot.text = texts[0];
-      showMonitorTab("source");
-      applyTextOverlayToPreview();
-      markTimelineDirty();
-    }
+    item.bg_style = selTxtBgStyle.value;
+    applyTimelineTextOverlayToPreview();
+    markTimelineDirty();
   });
 }
 
 if (slTxtSize) {
   slTxtSize.addEventListener("mousedown", () => {
-    if (selectedShotIdx >= 0) pushUndoState();
+    pushUndoState();
   });
   slTxtSize.addEventListener("input", () => {
-    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+    const item = getSelectedTextTrackItem();
+    if (!item) return;
     const sz = parseInt(slTxtSize.value, 10) || 56;
-    const shot = shotPlan[selectedShotIdx];
-    const texts = ensureShotTexts(shot);
-    if (texts[activeTextItemIdx]) {
-      texts[activeTextItemIdx].size = sz;
-      shot.text = texts[0];
-      if (valTxtSize) valTxtSize.textContent = `${sz}px`;
-      showMonitorTab("source");
-      applyTextOverlayToPreview();
-      markTimelineDirty();
-    }
+    item.size = sz;
+    if (valTxtSize) valTxtSize.textContent = `${sz}px`;
+    applyTimelineTextOverlayToPreview();
+    markTimelineDirty();
   });
 }
 
 if (colTxtColor) {
   colTxtColor.addEventListener("input", () => {
-    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
-    const shot = shotPlan[selectedShotIdx];
-    const texts = ensureShotTexts(shot);
-    if (texts[activeTextItemIdx]) {
-      texts[activeTextItemIdx].color = colTxtColor.value;
-      shot.text = texts[0];
-      showMonitorTab("source");
-      applyTextOverlayToPreview();
-      markTimelineDirty();
-    }
+    const item = getSelectedTextTrackItem();
+    if (!item) return;
+    item.color = colTxtColor.value;
+    applyTimelineTextOverlayToPreview();
+    markTimelineDirty();
   });
 }
 
 if (colTxtBg) {
   colTxtBg.addEventListener("input", () => {
-    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
-    const shot = shotPlan[selectedShotIdx];
-    const texts = ensureShotTexts(shot);
-    if (texts[activeTextItemIdx]) {
-      texts[activeTextItemIdx].bg_color = colTxtBg.value;
-      shot.text = texts[0];
-      showMonitorTab("source");
-      applyTextOverlayToPreview();
-      markTimelineDirty();
-    }
+    const item = getSelectedTextTrackItem();
+    if (!item) return;
+    item.bg_color = colTxtBg.value;
+    applyTimelineTextOverlayToPreview();
+    markTimelineDirty();
   });
 }
 
 Array.from(document.querySelectorAll(".txt-pos-btn")).forEach((btn) => {
   btn.addEventListener("click", () => {
-    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+    const item = getSelectedTextTrackItem();
+    if (!item) return;
     pushUndoState();
-    const shot = shotPlan[selectedShotIdx];
-    const texts = ensureShotTexts(shot);
-    if (texts[activeTextItemIdx]) {
-      const cur = texts[activeTextItemIdx];
-      cur.x = 50;
-      cur.y = parseFloat(btn.dataset.y) || 82;
-      shot.text = texts[0];
-      if (txtPosReadout) {
-        txtPosReadout.textContent = `Position: X 50% · Y ${Math.round(cur.y)}% (Drag text in monitor to move)`;
-      }
-      showMonitorTab("source");
-      applyTextOverlayToPreview();
-      markTimelineDirty();
+    item.x = 50;
+    item.y = parseFloat(btn.dataset.y) || 80;
+    if (txtPosReadout) {
+      txtPosReadout.textContent = `Position: X 50% · Y ${Math.round(item.y)}% (Drag text in monitor to move)`;
     }
+    applyTimelineTextOverlayToPreview();
+    markTimelineDirty();
   });
 });
 
 if (btnTxtAll) {
   btnTxtAll.addEventListener("click", () => {
-    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+    const item = getSelectedTextTrackItem();
+    if (!item) return;
     pushUndoState();
-    const srcTexts = JSON.parse(JSON.stringify(ensureShotTexts(shotPlan[selectedShotIdx])));
-    shotPlan.forEach((s) => {
-      s.texts = JSON.parse(JSON.stringify(srcTexts));
-      s.text = s.texts.length ? s.texts[0] : defaultTextOverlay();
-    });
-    renderTimelineTrack();
+    const totalDur = shotPlan.reduce((acc, s) => acc + Number(s.duration || 0), 0) || 10.0;
+    item.start_time = 0.0;
+    item.duration = Number(totalDur.toFixed(2));
+    populateTextControls();
+    renderTextTrack();
+    applyTimelineTextOverlayToPreview();
     markTimelineDirty();
-    setStatus(buildStatus, `✨ Copied ${srcTexts.length} text layer(s) to all shots on the timeline!`, "success");
+    setStatus(buildStatus, `⏱️ Expanded "${item.content || "Title"}" to cover entire ${totalDur.toFixed(1)}s reel.`, "success");
   });
 }
 
 if (btnTxtClear) {
   btnTxtClear.addEventListener("click", () => {
-    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
-    pushUndoState();
-    const shot = shotPlan[selectedShotIdx];
-    shot.texts = [];
-    shot.text = defaultTextOverlay();
-    activeTextItemIdx = 0;
-    populateTextControls(shot);
-    applyTextOverlayToPreview();
-    renderTimelineTrack();
-    markTimelineDirty();
+    deleteSelectedTextTrackItem();
   });
 }
 
@@ -2892,6 +2892,10 @@ async function runBuild(useCustomShotPlan = false) {
 
   if (useCustomShotPlan && shotPlan && shotPlan.length) {
     fd.append("shot_plan", JSON.stringify(shotPlan));
+  }
+
+  if (textTrackItems && textTrackItems.length) {
+    fd.append("text_track", JSON.stringify(textTrackItems));
   }
 
   if (localFolderPath) {
@@ -3562,6 +3566,36 @@ function hydrateEditorFromJobState(data) {
     initDraftTimelineFromRhythm();
   }
 
+  textTrackItems = Array.isArray(data.text_track) ? data.text_track : [];
+  if (!textTrackItems.length && data.shot_plan) {
+    let cumOffset = 0;
+    data.shot_plan.forEach((s, idx) => {
+      const dur = Math.max(0.2, Number(s.duration || 1.0));
+      const sTexts = (s.texts && s.texts.length) ? s.texts : (s.text && (s.text.content || "").trim()) ? [s.text] : [];
+      sTexts.forEach((st, sidx) => {
+        if ((st.content || "").trim()) {
+          textTrackItems.push({
+            id: `txt_mig_${idx}_${sidx}_${Date.now()}`,
+            content: st.content,
+            font: st.font || "Arial Bold",
+            size: st.size || 56,
+            color: st.color || "#FFFFFF",
+            bg_style: st.bg_style || "plain",
+            bg_color: st.bg_color || "#1F2C38",
+            x: st.x !== undefined ? st.x : 50,
+            y: st.y !== undefined ? st.y : 80,
+            start_time: Number(cumOffset.toFixed(2)),
+            duration: Number(dur.toFixed(2)),
+          });
+        }
+      });
+      cumOffset += dur;
+    });
+  }
+  selectedTextTrackId = textTrackItems.length ? textTrackItems[0].id : null;
+  renderTextTrack();
+  applyTimelineTextOverlayToPreview();
+
   if (data.built_exists && data.video_url) {
     builtPreview.src = data.video_url + "?t=" + Date.now();
     enableStep($("step3"));
@@ -3627,6 +3661,7 @@ if (btnSaveProject) {
           job_name: nameVal,
           settings: { width: projectWidth, height: projectHeight, fps: projectFps },
           shot_plan: shotPlan,
+          text_track: textTrackItems,
           local_folder: localFolderPath,
         }),
       });
