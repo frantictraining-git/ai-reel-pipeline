@@ -413,6 +413,7 @@
         <div class="monitor-toolbar">
           <div class="monitor-tabs">
             <button class="monitor-tab active" id="tab-source">⚡ Live Sequence & Reframe (Real-Time)</button>
+            <button class="monitor-tab" id="tab-reference" style="display:none;" title="View original reference video used for beat-syncing">🎬 Reference Reel</button>
             <button class="monitor-tab" id="tab-program">Rendered Master File</button>
           </div>
           <div class="monitor-info-pill" id="monitor-info" title="Click to change resolution & frame rate">1080 × 1920 · 30 FPS ⚙</div>
@@ -422,7 +423,18 @@
           <div id="monitor-empty" class="monitor-empty">
             <div class="empty-icon">🎞️</div>
             <div style="font-size:13px; color:var(--text-dim); font-weight:500;">No Active Timeline Preview</div>
-            <div style="font-size:11.5px; margin-top:4px;">Drop a reference reel on the left to detect cuts & build your sequence.</div>
+            <div style="font-size:11.5px; margin-top:4px;">Load a reference reel on the left to detect cuts & build your sequence.</div>
+          </div>
+
+          <!-- DEDICATED REFERENCE REEL PREVIEW -->
+          <div id="reference-result" class="monitor-video-wrap hidden" style="flex-direction:column; gap:8px;">
+            <div class="ref-monitor-badge-bar">
+              <span class="ref-badge-pill">🎬 REFERENCE REEL · PACING & RHYTHM GUIDE</span>
+              <span class="ref-badge-sub">Read-Only Guide · Not part of rendered video</span>
+            </div>
+            <div class="ref-video-viewport" id="ref-video-viewport">
+              <video id="reference-preview" controls playsinline></video>
+            </div>
           </div>
 
           <div id="build-result" class="monitor-video-wrap hidden">
@@ -439,6 +451,10 @@
               </defs>
             </svg>
             <div id="reframe-viewport" class="reframe-viewport" title="Drag with mouse to reposition clip or text">
+              <!-- On-Screen Source Indicator -->
+              <div class="monitor-source-badge-bar" id="monitor-source-badge-bar">
+                <span class="monitor-source-pill" id="monitor-source-pill">🎞️ TIMELINE SEQUENCE</span>
+              </div>
               <!-- Dual decks (Deck A & Deck B) for 0ms seamless cuts with zero black flash -->
               <video id="source-preview" class="seq-deck deck-active" playsinline></video>
               <video id="source-preview-b" class="seq-deck deck-standby" playsinline></video>

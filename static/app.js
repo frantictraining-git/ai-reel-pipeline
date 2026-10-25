@@ -222,12 +222,16 @@ if (mainTabNav) {
   });
 }
 
-// Monitor Dual Decks for 0ms Seamless Multi-Shot Cuts
+// Monitor Decks (Reference Reel | Sequence Decks A/B | Program Master)
 const tabProgram = $("tab-program");
 const tabSource = $("tab-source");
+const tabReference = $("tab-reference");
 const monitorEmpty = $("monitor-empty");
 const buildResult = $("build-result");
 const builtPreview = $("built-preview");
+const referenceResult = $("reference-result");
+const referencePreview = $("reference-preview");
+const monitorSourcePill = $("monitor-source-pill");
 const sourcePreviewWrap = $("source-preview-wrap");
 const sourcePreview = $("source-preview");
 const sourcePreviewB = $("source-preview-b");
@@ -266,10 +270,28 @@ const srcSeekSlider = $("src-seek-slider");
 const srcTimeReadout = $("src-time-readout");
 
 function showMonitorTab(which) {
+  if (which === "reference") {
+    if (tabReference) tabReference.classList.add("active");
+    if (tabSource) tabSource.classList.remove("active");
+    if (tabProgram) tabProgram.classList.remove("active");
+    stopSequencePlayback();
+    if (sourcePreview) sourcePreview.pause();
+    if (sourcePreviewB) sourcePreviewB.pause();
+    if (builtPreview) builtPreview.pause();
+    if (sourcePreviewWrap) sourcePreviewWrap.classList.add("hidden");
+    if (buildResult) buildResult.classList.add("hidden");
+    if (monitorEmpty) monitorEmpty.classList.add("hidden");
+    if (referenceResult) referenceResult.classList.remove("hidden");
+    return;
+  }
+
   if (which === "source") {
-    tabSource.classList.add("active");
-    tabProgram.classList.remove("active");
-    buildResult.classList.add("hidden");
+    if (tabSource) tabSource.classList.add("active");
+    if (tabReference) tabReference.classList.remove("active");
+    if (tabProgram) tabProgram.classList.remove("active");
+    if (referencePreview) referencePreview.pause();
+    if (referenceResult) referenceResult.classList.add("hidden");
+    if (buildResult) buildResult.classList.add("hidden");
     if (builtPreview) builtPreview.pause();
     const curDeck = getVisibleVideoDeck();
     if (curDeck && curDeck.getAttribute("src")) {
@@ -284,10 +306,13 @@ function showMonitorTab(which) {
     stopSequencePlayback();
     if (sourcePreview) sourcePreview.pause();
     if (sourcePreviewB) sourcePreviewB.pause();
-    tabProgram.classList.add("active");
-    tabSource.classList.remove("active");
+    if (referencePreview) referencePreview.pause();
+    if (tabProgram) tabProgram.classList.add("active");
+    if (tabSource) tabSource.classList.remove("active");
+    if (tabReference) tabReference.classList.remove("active");
+    if (referenceResult) referenceResult.classList.add("hidden");
     sourcePreviewWrap.classList.add("hidden");
-    if (builtPreview.getAttribute("src")) {
+    if (builtPreview && builtPreview.getAttribute("src")) {
       monitorEmpty.classList.add("hidden");
       buildResult.classList.remove("hidden");
     } else {
@@ -297,6 +322,7 @@ function showMonitorTab(which) {
   }
 }
 
+if (tabReference) tabReference.addEventListener("click", () => showMonitorTab("reference"));
 if (tabProgram) tabProgram.addEventListener("click", () => showMonitorTab("program"));
 if (tabSource) tabSource.addEventListener("click", () => showMonitorTab("source"));
 
@@ -414,6 +440,9 @@ function startSequencePlayback(startIdx = 0) {
   isPlayingSequence = true;
   if (btnSeqPlay) {
     btnSeqPlay.textContent = "⏹ Stop Sequence";
+  }
+  if (monitorSourcePill) {
+    monitorSourcePill.textContent = "▶ TIMELINE SEQUENCE PLAYBACK";
   }
 
   // Calculate cumulative sequence offset up to startIdx so A1 Audio syncs accurately
@@ -688,12 +717,19 @@ function handleReferenceSelectedFile(file) {
   }
   if (btnAnalyze) btnAnalyze.disabled = false;
 
-  try {
-    sourcePreview.src = URL.createObjectURL(file);
-    sourcePreview.setAttribute("data-clip", file.name);
-    sourcePreview.style.transform = "translate(0%, 0%) scale(1)";
-    showMonitorTab("source");
-  } catch (e) {}
+  const refUrl = URL.createObjectURL(file);
+  referenceFile._blobUrl = refUrl;
+
+  if (tabReference) {
+    tabReference.style.display = "";
+    tabReference.textContent = `🎬 Ref: ${file.name.length > 12 ? file.name.slice(0, 10) + "…" : file.name}`;
+    tabReference.title = `Reference Reel: ${file.name}`;
+  }
+  if (referencePreview) {
+    referencePreview.src = refUrl;
+  }
+
+  showMonitorTab("reference");
 }
 
 if (btnUploadRef && inputReference) {
@@ -753,6 +789,13 @@ btnAnalyze.addEventListener("click", async () => {
 
     jobId = data.job_id;
     referenceUrl = data.reference_url;
+    if (referenceUrl && referencePreview) {
+      referencePreview.src = referenceUrl;
+      if (tabReference) {
+        tabReference.style.display = "";
+        tabReference.textContent = "🎬 Reference Reel";
+      }
+    }
     currentRhythm = data.rhythm;
     if ($("job-id-display")) $("job-id-display").textContent = jobId;
     if ($("top-job-name")) {
@@ -2487,6 +2530,11 @@ function previewSelectedShotInMonitor(autoPlay = true, useDeckSwitch = false, cu
 
   showMonitorTab("source");
   applyReframeTransformToPreview();
+
+  if (monitorSourcePill) {
+    const sName = shot.clip ? (shot.clip.length > 22 ? shot.clip.slice(0, 20) + "…" : shot.clip) : "";
+    monitorSourcePill.textContent = `🎞️ SHOT #${selectedShotIdx + 1}: ${sName}`;
+  }
 
   const seekTo = (customSeekTime !== null && customSeekTime !== undefined)
     ? Number(customSeekTime)
@@ -4511,6 +4559,17 @@ function hydrateEditorFromJobState(data) {
   jobId = data.job_id;
   referenceUrl = data.reference_url || null;
   customAudioUrl = data.custom_audio_url || null;
+
+  if (referenceUrl && referencePreview) {
+    referencePreview.src = referenceUrl;
+    if (tabReference) {
+      tabReference.style.display = "";
+      tabReference.textContent = "🎬 Reference Reel";
+    }
+  } else if (tabReference) {
+    tabReference.style.display = "none";
+    tabReference.classList.remove("active");
+  }
   if ($("job-id-display")) $("job-id-display").textContent = jobId;
   if (topJobInput) topJobInput.value = data.job_name || jobId;
   if ($("job-name")) $("job-name").value = data.job_name || "";
@@ -4843,6 +4902,15 @@ function closeCurrentJob() {
   if (builtPreview) {
     builtPreview.pause();
     builtPreview.removeAttribute("src");
+  }
+  if (referencePreview) {
+    referencePreview.pause();
+    referencePreview.removeAttribute("src");
+  }
+  if (referenceResult) referenceResult.classList.add("hidden");
+  if (tabReference) {
+    tabReference.style.display = "none";
+    tabReference.classList.remove("active");
   }
   if (sourcePreview) {
     sourcePreview.pause();

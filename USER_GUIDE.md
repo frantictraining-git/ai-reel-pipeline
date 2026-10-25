@@ -28,7 +28,10 @@ When you launch **Reel Pipeline**, you enter a dark-themed, DaVinci Resolve-insp
 
 1. **Top Control Bar:** Project title, Undo/Redo buttons, quick job presets, and project save/open controls.
 2. **Left Panel (Media Bin & AI Controls):** Where you drop your reference video, select your raw camera footage folder, adjust cut-detection sensitivity, and trigger AI content tagging.
-3. **Center Stage (Live Preview Monitor):** Dual-deck 9:16 vertical playback monitor with interactive click-and-drag reframing, real-time white balance filters, and text overlays.
+3. **Center Stage (Live Preview Monitor):** Tri-deck 9:16 vertical playback monitor with clear visual differentiation:
+   - **🎬 Reference Reel Tab (Amber):** Displays your imported reference video with an amber glowing border and status pill (`🎬 REFERENCE REEL · PACING & RHYTHM GUIDE`). Clearly tagged as a read-only guide so you never mistake it for camera footage.
+   - **⚡ Live Sequence Tab (Cyan):** Seamless zero-latency dual-deck playback showing your actual working camera clips on the timeline (`🎞️ SHOT #01: clip.mp4`), with live click-and-drag pan/zoom reframing and text overlays.
+   - **Rendered Master Tab:** Plays back the final high-bitrate baked video file after clicking Build Reel.
 4. **Right Inspector Panel:** Detailed per-clip controls for framing, pan & zoom, white balance, tonality curves, 3D LUTs, vignettes, fades, and text styling.
 5. **Bottom Dock (Multi-Track Timeline):** DaVinci Resolve-style continuous multi-track timeline featuring a Timecode Ruler (TC), Text Track (T1), Video Track (V1), Audio Track (A1), and interactive 60 FPS playhead (CTI).
 
@@ -48,6 +51,7 @@ Creating a viral, fast-cut, rhythm-matched reel takes under 3 minutes:
 3. Keep the **Cut Sensitivity** slider at the default `20` (or raise it if you want only hard cuts detected).
 4. Click **Analyze Cuts**.
    - *What happens:* PySceneDetect scans the video frame-by-frame, finds every cut point, and builds an exact rhythm map showing the duration of every single beat.
+   - *Detected Shot List:* Expanding the shot list displays **10 shots at a time** with sticky headers and precise in/out timecodes for rapid review.
 
 ### Step 2: Ingest Footage & Smart-Match
 1. In **02 Media Library**, click **📁 Folder** to pick a folder on your Mac SSD, or click **+ Clips** to select specific video files.
@@ -147,15 +151,46 @@ Add stylish, modern captions and title cards that elevate your video:
 
 ---
 
-## 6. Custom Audio & Music Sync (A1 Track)
+## 6. Audio Architecture: Reference Audio vs Clip Audio vs Custom Music
 
-By default, the app synchronizes your raw clips to the reference video's audio track. To add your own track:
+Reel Pipeline gives you studio-grade multi-track audio control designed specifically for short-form rhythm editing:
 
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                          AUDIO SOURCES COMPARED                        │
+├───────────────────┬────────────────────────────────────────────────────┤
+│ 🔊 REFERENCE AUDIO│ The soundtrack/music extracted directly from the   │
+│                   │ reference video reel. Used as the master rhythmic  │
+│                   │ pacing guide so every cut lands on the beat.       │
+├───────────────────┼────────────────────────────────────────────────────┤
+│ 🎙️ CLIP AUDIO      │ The camera's original microphone audio (kitchen    │
+│                   │ sizzles, dialogue, clinking glasses, ambient sound)│
+│                   │ embedded inside each raw video file.               │
+├───────────────────┼────────────────────────────────────────────────────┤
+│ 🎵 CUSTOM AUDIO   │ An external MP3/WAV/M4A song or voiceover loaded   │
+│    (A1 Track)     │ onto the timeline to replace the reference music.  │
+└───────────────────┴────────────────────────────────────────────────────┘
+```
+
+### What does "Reference Audio" stand for?
+When you load an inspiring Instagram Reel or TikTok reference video into the app, Reel Pipeline analyzes its visual cuts and extracts its **audio track**.
+* **Purpose:** Acts as your reference soundtrack and tempo grid. When you build the reel, your raw camera clips are synchronized to the cuts and beats of this soundtrack.
+* **When to use it:** When you want your finished reel to use the exact trending music or voice pacing of the reference video.
+
+### What does "Clip Audio" stand for?
+Clip Audio is the **natural sound recorded by your camera or smartphone microphone** when shooting your footage.
+* **Purpose:** Provides atmospheric richness—such as sizzling steaks, pouring wine, crackling fire, footsteps, or natural room reverberation.
+* **How to toggle it:** Check the **"Keep Original Clip Audio"** checkbox on the left panel (or in project settings).
+* **When to check it:** When you want the viewer to hear delicious cooking sounds or live atmosphere subtly mixed underneath the background music.
+* **When to uncheck it:** When your raw footage has distracting wind noise, camera operator chatter, or poor quality camera audio, and you want a clean music-only master.
+
+### Adding Custom Music (A1 Track)
+To replace the reference soundtrack with your own song or licensed track:
 1. Click **🎵 + Add Audio Track** on the timeline toolbar and select any MP3, WAV, or M4A file.
 2. The **A1 · AUDIO** track lights up with a green waveform.
 3. **Adjust Timing:** Drag the left handle `[` to offset where the music starts. Drag the right handle `]` to trim its duration.
 4. **Volume Control:** Use the volume slider on the track header to mix background music between 0% and 150%.
-5. **Original Audio:** Check **Keep Original Clip Audio** if you want background kitchen sizzles, speech, or natural ambient sound layered underneath the music.
+5. **Layer with Clip Audio:** If **Keep Original Clip Audio** is checked, Reel Pipeline automatically blends both tracks in stereo, giving you professional audio layering with zero clipping.
 
 ---
 

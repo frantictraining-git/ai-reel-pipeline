@@ -534,6 +534,81 @@ body.nle-body {
   box-shadow: 0 10px 30px rgba(15, 22, 28, 0.6);
 }
 
+/* Reference Monitor Differentiation */
+.ref-monitor-badge-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 480px;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  border-radius: var(--radius);
+  padding: 5px 10px;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.2);
+}
+
+.ref-badge-pill {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: #F59E0B;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ref-badge-sub {
+  font-size: 10px;
+  color: #FCD34D;
+  opacity: 0.85;
+}
+
+.ref-video-viewport {
+  position: relative;
+  background: #0F161C;
+  border-radius: var(--radius);
+  border: 2px solid rgba(245, 158, 11, 0.7);
+  box-shadow: 0 0 20px rgba(245, 158, 11, 0.3), inset 0 2px 6px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  max-width: 480px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: calc(100% - 42px);
+  max-height: 100%;
+  aspect-ratio: 9 / 16;
+}
+
+.ref-video-viewport video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+/* Timeline Source Badge Bar */
+.monitor-source-badge-bar {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.monitor-source-pill {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  font-weight: 600;
+  color: #38BDF8;
+  background: rgba(15, 22, 28, 0.85);
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+  padding: 3px 8px;
+  border-radius: 3px;
+  backdrop-filter: blur(4px);
+}
+
 /* Interactive Drag-to-Reposition & Resize Viewport */
 .reframe-viewport {
   position: relative;
