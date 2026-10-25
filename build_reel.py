@@ -150,12 +150,20 @@ def _resolve_font_path(font_family: str) -> str:
     return ""
 
 
-def render_text_overlay_png(text_cfg: dict, width: int, height: int, out_png: Path) -> bool:
-    """Render a transparent RGBA PNG overlay for a clip's text title using Pillow."""
-    if not text_cfg or not isinstance(text_cfg, dict):
+def render_text_overlay_png(texts_input, width: int, height: int, out_png: Path) -> bool:
+    """Render a transparent RGBA PNG overlay for a clip's text titles using Pillow.
+    Supports either a single text dict or a list of multiple text dicts."""
+    if not texts_input:
         return False
-    content = str(text_cfg.get("content") or "").strip()
-    if not content:
+    if isinstance(texts_input, dict):
+        text_list = [texts_input]
+    elif isinstance(texts_input, list):
+        text_list = texts_input
+    else:
+        return False
+
+    valid_texts = [t for t in text_list if isinstance(t, dict) and str(t.get("content") or "").strip()]
+    if not valid_texts:
         return False
 
     try:
@@ -166,69 +174,74 @@ def render_text_overlay_png(text_cfg: dict, width: int, height: int, out_png: Pa
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    font_family = str(text_cfg.get("font") or "Arial Bold").strip()
-    base_size = float(text_cfg.get("size", 56))
-    font_px = max(18, int(round(base_size * (width / 1080.0))))
+    for text_cfg in valid_texts:
+        content = str(text_cfg.get("content") or "").strip()
+        if not content:
+            continue
 
-    resolved_fp = _resolve_font_path(font_family)
-    font_obj = None
-    if resolved_fp:
-        try:
-            font_obj = ImageFont.truetype(resolved_fp, font_px)
-        except Exception:
-            font_obj = None
-    if font_obj is None:
-        font_obj = ImageFont.load_default()
+        font_family = str(text_cfg.get("font") or "Arial Bold").strip()
+        base_size = float(text_cfg.get("size", 56))
+        font_px = max(16, int(round(base_size * (width / 1080.0))))
 
-    bg_style = str(text_cfg.get("bg_style") or "none").strip()
-    stroke_w = max(2, int(round(font_px * 0.06))) if bg_style != "plain" else 0
-    bbox = draw.multiline_textbbox((0, 0), content, font=font_obj, align="center", stroke_width=stroke_w)
-    tw = bbox[2] - bbox[0]
-    th = bbox[3] - bbox[1]
+        resolved_fp = _resolve_font_path(font_family)
+        font_obj = None
+        if resolved_fp:
+            try:
+                font_obj = ImageFont.truetype(resolved_fp, font_px)
+            except Exception:
+                font_obj = None
+        if font_obj is None:
+            font_obj = ImageFont.load_default()
 
-    pos_x_pct = max(5.0, min(95.0, float(text_cfg.get("x", 50.0))))
-    pos_y_pct = max(5.0, min(95.0, float(text_cfg.get("y", 80.0))))
+        bg_style = str(text_cfg.get("bg_style") or "none").strip()
+        stroke_w = max(2, int(round(font_px * 0.06))) if bg_style != "plain" else 0
+        bbox = draw.multiline_textbbox((0, 0), content, font=font_obj, align="center", stroke_width=stroke_w)
+        tw = bbox[2] - bbox[0]
+        th = bbox[3] - bbox[1]
 
-    cx = int(round((pos_x_pct / 100.0) * width))
-    cy = int(round((pos_y_pct / 100.0) * height))
+        pos_x_pct = max(5.0, min(95.0, float(text_cfg.get("x", 50.0))))
+        pos_y_pct = max(5.0, min(95.0, float(text_cfg.get("y", 80.0))))
 
-    x0 = max(20, min(width - tw - 20, cx - tw // 2))
-    y0 = max(20, min(height - th - 20, cy - th // 2))
+        cx = int(round((pos_x_pct / 100.0) * width))
+        cy = int(round((pos_y_pct / 100.0) * height))
 
-    bg_color_hex = str(text_cfg.get("bg_color") or "#1F2C38").strip()
-    if bg_style in ("pill", "box"):
-        pad_x = max(18, int(round(font_px * 0.42)))
-        pad_y = max(12, int(round(font_px * 0.26)))
-        rx0 = max(8, x0 - pad_x)
-        ry0 = max(8, y0 - pad_y)
-        rx1 = min(width - 8, x0 + tw + pad_x)
-        ry1 = min(height - 8, y0 + th + pad_y)
-        bg_rgba = _hex_to_rgba(bg_color_hex, alpha=215 if bg_style == "pill" else 235)
-        radius = int(round((ry1 - ry0) * 0.35)) if bg_style == "pill" else 8
-        draw.rounded_rectangle([rx0, ry0, rx1, ry1], radius=radius, fill=bg_rgba)
+        x0 = max(10, min(width - tw - 10, cx - tw // 2))
+        y0 = max(10, min(height - th - 10, cy - th // 2))
 
-    text_rgba = _hex_to_rgba(str(text_cfg.get("color") or "#FFFFFF"), alpha=255)
-    if bg_style == "plain":
-        # Pure text with zero background, zero outline, zero shadow
-        draw.multiline_text(
-            (x0, y0),
-            content,
-            font=font_obj,
-            fill=text_rgba,
-            align="center",
-        )
-    else:
-        outline_rgba = (15, 22, 28, 235) if bg_style == "outline" else (15, 22, 28, 165)
-        use_stroke = stroke_w if bg_style in ("outline", "none") else max(1, stroke_w // 2)
-        draw.multiline_text(
-            (x0, y0),
-            content,
-            font=font_obj,
-            fill=text_rgba,
-            align="center",
-            stroke_width=use_stroke,
-            stroke_fill=outline_rgba,
-        )
+        bg_color_hex = str(text_cfg.get("bg_color") or "#1F2C38").strip()
+        if bg_style in ("pill", "box"):
+            pad_x = max(16, int(round(font_px * 0.42)))
+            pad_y = max(10, int(round(font_px * 0.26)))
+            rx0 = max(4, x0 - pad_x)
+            ry0 = max(4, y0 - pad_y)
+            rx1 = min(width - 4, x0 + tw + pad_x)
+            ry1 = min(height - 4, y0 + th + pad_y)
+            bg_rgba = _hex_to_rgba(bg_color_hex, alpha=215 if bg_style == "pill" else 235)
+            radius = int(round((ry1 - ry0) * 0.35)) if bg_style == "pill" else 8
+            draw.rounded_rectangle([rx0, ry0, rx1, ry1], radius=radius, fill=bg_rgba)
+
+        text_rgba = _hex_to_rgba(str(text_cfg.get("color") or "#FFFFFF"), alpha=255)
+        if bg_style == "plain":
+            # Pure text with zero background, zero outline, zero shadow
+            draw.multiline_text(
+                (x0, y0),
+                content,
+                font=font_obj,
+                fill=text_rgba,
+                align="center",
+            )
+        else:
+            outline_rgba = (15, 22, 28, 235) if bg_style == "outline" else (15, 22, 28, 165)
+            use_stroke = stroke_w if bg_style in ("outline", "none") else max(1, stroke_w // 2)
+            draw.multiline_text(
+                (x0, y0),
+                content,
+                font=font_obj,
+                fill=text_rgba,
+                align="center",
+                stroke_width=use_stroke,
+                stroke_fill=outline_rgba,
+            )
 
     img.save(str(out_png), "PNG")
     return True
@@ -427,6 +440,9 @@ def build(
             span_y = float(sp.get("pan_y", 0.0))
             sgrade = sp.get("grade") or {}
             stext = sp.get("text") or {}
+            stexts = sp.get("texts") or []
+            if not stexts and stext:
+                stexts = stext if isinstance(stext, list) else [stext]
             stag = sp.get("tag", shots[idx % len(shots)].get("tag") if idx < len(shots) else None)
             active_shots.append({
                 "index": idx,
@@ -439,6 +455,7 @@ def build(
                 "pan_y": span_y,
                 "grade": sgrade,
                 "text": stext,
+                "texts": stexts,
                 "tag": stag,
             })
     else:
@@ -520,6 +537,7 @@ def build(
             "pan_y": round(span_y, 2),
             "grade": item.get("grade") or {},
             "text": item.get("text") or {},
+            "texts": item.get("texts") or [],
             "tag": item.get("tag"),
         })
 
@@ -553,7 +571,8 @@ def build(
             vf += f",tpad=stop_mode=clone:stop_duration={freeze_pad:.3f}"
 
         txt_png = tmpdir / f"txt_{i:03d}.png"
-        has_txt_png = render_text_overlay_png(item.get("text"), width, height, txt_png)
+        raw_texts = item.get("texts") or item.get("text") or []
+        has_txt_png = render_text_overlay_png(raw_texts, width, height, txt_png)
 
         if has_txt_png:
             cmd = [
@@ -647,6 +666,7 @@ def build(
             "pan_y": s.get("pan_y", 0.0),
             "grade": s.get("grade") or {},
             "text": s.get("text") or {},
+            "texts": s.get("texts") or [],
             "tag": s["tag"],
         }
         for s in shot_log

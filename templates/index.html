@@ -427,12 +427,13 @@
 
           <div id="source-preview-wrap" class="monitor-video-wrap hidden" style="flex-direction:column; gap:8px;">
             <div id="reframe-viewport" class="reframe-viewport" title="Drag with mouse to reposition clip or text">
-              <video id="source-preview" playsinline></video>
+              <!-- Dual decks (Deck A & Deck B) for 0ms seamless cuts with zero black flash -->
+              <video id="source-preview" class="seq-deck deck-active" playsinline></video>
+              <video id="source-preview-b" class="seq-deck deck-standby" playsinline></video>
               <div id="vignette-preview-layer" class="vignette-preview-layer"></div>
               <div id="fade-preview-layer" class="fade-preview-layer"></div>
-              <div id="text-preview-layer" class="text-preview-layer hidden" title="Drag to reposition text on screen">
-                <span id="text-preview-badge" class="text-preview-badge"></span>
-              </div>
+              <!-- Multiple Interactive Text Overlays Layer -->
+              <div id="text-preview-container" class="text-preview-container"></div>
               <div class="reframe-overlay-hint" id="reframe-overlay-hint">🖐️ Drag video or text to reposition · Scroll to resize</div>
             </div>
             <!-- Hidden Audio Player for Real-Time CapCut Sequence Playback -->
@@ -601,82 +602,97 @@
                 </div>
               </div>
 
-              <!-- SUBTAB 3: TEXT & TITLE OVERLAY (Real-Time + Drag on Monitor) -->
+              <!-- SUBTAB 3: TEXT & TITLE OVERLAY (Multiple Texts + Drag on Monitor) -->
               <div id="insp-pane-text" class="hidden">
-                <div class="inspector-field">
-                  <label>
-                    <span>Text Overlay (Supports Multi-Line)</span>
-                    <span class="mono" style="font-size:10px; color:var(--accent-bright);">Live</span>
-                  </label>
-                  <textarea id="txt-overlay-content" rows="2" class="tactile-input" placeholder="Type title or caption for this shot…" style="width:100%; resize:vertical; font-family:inherit;"></textarea>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                  <span style="font-size:11px; font-weight:600; color:var(--text-dim);">Text Layers on this Shot</span>
+                  <button type="button" id="btn-txt-add-item" class="btn btn-primary btn-sm" style="padding:2px 8px; font-size:10.5px;">➕ Add Text</button>
                 </div>
 
-                <div class="inspector-field" style="margin-bottom:8px;">
-                  <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <label><span>Font Family (OS Installed & Custom)</span></label>
-                    <input type="file" id="input-custom-font" accept=".ttf,.otf,.ttc,.woff,.woff2" hidden>
-                    <button type="button" id="btn-upload-font" class="btn btn-secondary btn-sm" style="padding:2px 7px; font-size:10px;" title="Upload a custom .ttf, .otf, or .woff font file">➕ Add Custom Font</button>
+                <!-- Text Layer List / Tabs for Multiple Texts -->
+                <div class="txt-items-strip" id="txt-items-strip"></div>
+
+                <div id="txt-selected-editor" style="margin-top:8px;">
+                  <div class="inspector-field">
+                    <label>
+                      <span>Text Content (Supports Multi-Line)</span>
+                      <span class="mono" style="font-size:10px; color:var(--accent-bright);">Live</span>
+                    </label>
+                    <textarea id="txt-overlay-content" rows="2" class="tactile-input" placeholder="Type title or caption for this text layer…" style="width:100%; resize:vertical; font-family:inherit;"></textarea>
                   </div>
-                  <div class="tactile-select-wrap">
-                    <select id="sel-txt-font">
-                      <optgroup label="Featured Presets" id="optgrp-preset-fonts">
-                        <option value="Arial Bold" selected>Arial Bold</option>
-                        <option value="Helvetica Bold">Helvetica Bold</option>
-                        <option value="Impact">Impact (Reels)</option>
-                        <option value="Futura">Futura</option>
-                        <option value="Georgia">Georgia Serif</option>
-                        <option value="Courier New">Courier Mono</option>
-                      </optgroup>
-                      <optgroup label="Uploaded Custom Fonts" id="optgrp-custom-fonts"></optgroup>
-                      <optgroup label="macOS Installed Fonts" id="optgrp-os-fonts"></optgroup>
-                    </select>
+
+                  <div class="inspector-field" style="margin-bottom:8px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                      <label><span>Font Family (OS Installed & Custom)</span></label>
+                      <input type="file" id="input-custom-font" accept=".ttf,.otf,.ttc,.woff,.woff2" hidden>
+                      <button type="button" id="btn-upload-font" class="btn btn-secondary btn-sm" style="padding:2px 7px; font-size:10px;" title="Upload a custom .ttf, .otf, or .woff font file">➕ Add Custom Font</button>
+                    </div>
+                    <div class="tactile-select-wrap">
+                      <select id="sel-txt-font">
+                        <optgroup label="Featured Presets" id="optgrp-preset-fonts">
+                          <option value="Arial Bold" selected>Arial Bold</option>
+                          <option value="Helvetica Bold">Helvetica Bold</option>
+                          <option value="Impact">Impact (Reels)</option>
+                          <option value="Futura">Futura</option>
+                          <option value="Georgia">Georgia Serif</option>
+                          <option value="Courier New">Courier Mono</option>
+                        </optgroup>
+                        <optgroup label="Uploaded Custom Fonts" id="optgrp-custom-fonts"></optgroup>
+                        <optgroup label="macOS Installed Fonts" id="optgrp-os-fonts"></optgroup>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div class="inspector-field" style="margin-bottom:8px;">
+                    <label><span>Background / Style</span></label>
+                    <div class="tactile-select-wrap">
+                      <select id="sel-txt-bg-style">
+                        <option value="plain" selected>No Background (Clean Text Only)</option>
+                        <option value="none">No Background + Soft Drop Shadow</option>
+                        <option value="outline">No Background + Crisp Outline</option>
+                        <option value="pill">Rounded Pill Background</option>
+                        <option value="box">Solid Box Background</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div class="grade-row" style="margin-bottom:8px;">
+                    <label><span>Font Size</span><span class="mono" id="val-txt-size">56px</span></label>
+                    <input type="range" id="sl-txt-size" min="20" max="140" step="2" value="56">
+                  </div>
+
+                  <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+                    <div class="inspector-field" style="margin-bottom:0;">
+                      <label><span>Text Color</span></label>
+                      <input type="color" id="col-txt-color" value="#FFFFFF" style="width:100%; height:30px; background:#1F2C38; border:1px solid var(--border-dark); border-radius:4px; cursor:pointer;">
+                    </div>
+                    <div class="inspector-field" style="margin-bottom:0;">
+                      <label><span>Backdrop Color</span></label>
+                      <input type="color" id="col-txt-bg" value="#1F2C38" style="width:100%; height:30px; background:#1F2C38; border:1px solid var(--border-dark); border-radius:4px; cursor:pointer;">
+                    </div>
+                  </div>
+
+                  <div class="inspector-field" style="margin-bottom:8px;">
+                    <label><span>Quick Position (or Drag Text Directly in Monitor)</span></label>
+                    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px;">
+                      <button type="button" class="btn btn-secondary btn-sm txt-pos-btn" data-y="18">⬆ Top</button>
+                      <button type="button" class="btn btn-secondary btn-sm txt-pos-btn" data-y="50">⏺ Center</button>
+                      <button type="button" class="btn btn-secondary btn-sm txt-pos-btn" data-y="82">⬇ Bottom</button>
+                    </div>
+                    <div class="mono" id="txt-pos-readout" style="font-size:10px; color:var(--text-dim); margin-top:3px;">
+                      Position: X 50% · Y 82% (Drag text in monitor to move)
+                    </div>
+                  </div>
+
+                  <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:6px;">
+                    <button type="button" id="btn-txt-duplicate" class="btn btn-secondary btn-sm" title="Duplicate this text layer">📋 Duplicate Text</button>
+                    <button type="button" id="btn-txt-delete-selected" class="btn btn-secondary btn-sm" title="Delete this specific text layer">🗑️ Delete This Text</button>
                   </div>
                 </div>
 
-                <div class="inspector-field" style="margin-bottom:8px;">
-                  <label><span>Background / Style</span></label>
-                  <div class="tactile-select-wrap">
-                    <select id="sel-txt-bg-style">
-                      <option value="plain" selected>No Background (Clean Text Only)</option>
-                      <option value="none">No Background + Soft Drop Shadow</option>
-                      <option value="outline">No Background + Crisp Outline</option>
-                      <option value="pill">Rounded Pill Background</option>
-                      <option value="box">Solid Box Background</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div class="grade-row" style="margin-bottom:8px;">
-                  <label><span>Font Size</span><span class="mono" id="val-txt-size">56px</span></label>
-                  <input type="range" id="sl-txt-size" min="24" max="120" step="2" value="56">
-                </div>
-
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
-                  <div class="inspector-field" style="margin-bottom:0;">
-                    <label><span>Text Color</span></label>
-                    <input type="color" id="col-txt-color" value="#FFFFFF" style="width:100%; height:30px; background:#1F2C38; border:1px solid var(--border-dark); border-radius:4px; cursor:pointer;">
-                  </div>
-                  <div class="inspector-field" style="margin-bottom:0;">
-                    <label><span>Backdrop Color</span></label>
-                    <input type="color" id="col-txt-bg" value="#1F2C38" style="width:100%; height:30px; background:#1F2C38; border:1px solid var(--border-dark); border-radius:4px; cursor:pointer;">
-                  </div>
-                </div>
-
-                <div class="inspector-field" style="margin-bottom:8px;">
-                  <label><span>Quick Position (or Drag Text Directly in Monitor)</span></label>
-                  <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px;">
-                    <button type="button" class="btn btn-secondary btn-sm txt-pos-btn" data-y="18">⬆ Top</button>
-                    <button type="button" class="btn btn-secondary btn-sm txt-pos-btn" data-y="50">⏺ Center</button>
-                    <button type="button" class="btn btn-secondary btn-sm txt-pos-btn" data-y="82">⬇ Bottom</button>
-                  </div>
-                  <div class="mono" id="txt-pos-readout" style="font-size:10px; color:var(--text-dim); margin-top:3px;">
-                    Position: X 50% · Y 82% (Drag text in monitor to move)
-                  </div>
-                </div>
-
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:6px;">
-                  <button type="button" id="btn-txt-all" class="btn btn-secondary btn-sm" title="Copy this text overlay onto all shots in the timeline">✨ Text to All Shots</button>
-                  <button type="button" id="btn-txt-clear" class="btn btn-secondary btn-sm" title="Clear text from this shot">🗑️ Clear Clip Text</button>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:8px; margin-bottom:6px;">
+                  <button type="button" id="btn-txt-all" class="btn btn-secondary btn-sm" title="Copy all text layers from this shot onto all shots in the timeline">✨ All Texts to All Shots</button>
+                  <button type="button" id="btn-txt-clear" class="btn btn-secondary btn-sm" title="Remove all text layers from this shot">🗑️ Clear Clip Texts</button>
                 </div>
 
                 <div style="margin-bottom:6px;">

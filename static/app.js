@@ -69,7 +69,7 @@ function ensureShotGrade(shot) {
   return shot.grade;
 }
 
-function defaultTextOverlay() {
+function defaultTextOverlay(yPos = 82) {
   return {
     content: "",
     font: "Arial Bold",
@@ -78,22 +78,36 @@ function defaultTextOverlay() {
     bg_style: "plain",
     bg_color: "#1F2C38",
     x: 50,
-    y: 82,
+    y: yPos,
   };
 }
 
-function ensureShotText(shot) {
-  if (!shot) return defaultTextOverlay();
-  if (!shot.text || typeof shot.text !== "object") {
-    shot.text = defaultTextOverlay();
-  } else {
-    const def = defaultTextOverlay();
-    Object.keys(def).forEach((k) => {
-      if (shot.text[k] === undefined) shot.text[k] = def[k];
-    });
+function ensureShotTexts(shot) {
+  if (!shot) return [];
+  if (!shot.texts || !Array.isArray(shot.texts)) {
+    if (shot.text && typeof shot.text === "object" && (shot.text.content || "").trim()) {
+      shot.texts = [shot.text];
+    } else {
+      shot.texts = [];
+    }
   }
-  return shot.text;
+  if (shot.texts.length > 0) {
+    shot.text = shot.texts[0];
+  }
+  return shot.texts;
 }
+
+function ensureShotText(shot) {
+  const texts = ensureShotTexts(shot);
+  if (!texts.length) {
+    const d = defaultTextOverlay();
+    texts.push(d);
+    shot.text = d;
+  }
+  return texts[0];
+}
+
+let activeTextItemIdx = 0;
 
 const $ = (id) => document.getElementById(id);
 
@@ -208,7 +222,7 @@ if (mainTabNav) {
   });
 }
 
-// ---------- Monitor Tabs (Program vs Source) ----------
+// Monitor Dual Decks for 0ms Seamless Multi-Shot Cuts
 const tabProgram = $("tab-program");
 const tabSource = $("tab-source");
 const monitorEmpty = $("monitor-empty");
@@ -216,6 +230,34 @@ const buildResult = $("build-result");
 const builtPreview = $("built-preview");
 const sourcePreviewWrap = $("source-preview-wrap");
 const sourcePreview = $("source-preview");
+const sourcePreviewB = $("source-preview-b");
+let activeDeck = "A"; // "A" | "B"
+
+function getVisibleVideoDeck() {
+  return activeDeck === "B" && sourcePreviewB ? sourcePreviewB : sourcePreview;
+}
+
+function getStandbyVideoDeck() {
+  return activeDeck === "B" ? sourcePreview : sourcePreviewB;
+}
+
+function switchActiveVideoDeck() {
+  if (!sourcePreviewB) return;
+  if (activeDeck === "A") {
+    activeDeck = "B";
+    sourcePreviewB.classList.add("deck-active");
+    sourcePreviewB.classList.remove("deck-standby");
+    sourcePreview.classList.add("deck-standby");
+    sourcePreview.classList.remove("deck-active");
+  } else {
+    activeDeck = "A";
+    sourcePreview.classList.add("deck-active");
+    sourcePreview.classList.remove("deck-standby");
+    sourcePreviewB.classList.add("deck-standby");
+    sourcePreviewB.classList.remove("deck-active");
+  }
+}
+
 const fadePreviewLayer = $("fade-preview-layer");
 const liveAudioPlayer = $("live-audio-player");
 const btnSeqPlay = $("btn-seq-play");
@@ -229,7 +271,8 @@ function showMonitorTab(which) {
     tabProgram.classList.remove("active");
     buildResult.classList.add("hidden");
     if (builtPreview) builtPreview.pause();
-    if (sourcePreview.getAttribute("src")) {
+    const curDeck = getVisibleVideoDeck();
+    if (curDeck && curDeck.getAttribute("src")) {
       monitorEmpty.classList.add("hidden");
       sourcePreviewWrap.classList.remove("hidden");
       updateProjectSettingsUI();
@@ -240,6 +283,7 @@ function showMonitorTab(which) {
   } else {
     stopSequencePlayback();
     if (sourcePreview) sourcePreview.pause();
+    if (sourcePreviewB) sourcePreviewB.pause();
     tabProgram.classList.add("active");
     tabSource.classList.remove("active");
     sourcePreviewWrap.classList.add("hidden");
@@ -312,6 +356,12 @@ function stopSequencePlayback() {
   if (liveAudioPlayer) {
     liveAudioPlayer.pause();
   }
+  if (sourcePreview) {
+    sourcePreview.pause();
+  }
+  if (sourcePreviewB) {
+    sourcePreviewB.pause();
+  }
   if (fadePreviewLayer) {
     fadePreviewLayer.style.opacity = "0";
   }
@@ -353,21 +403,21 @@ function startSequencePlayback(startIdx = 0) {
   }
 
   const keepOrigAudio = $("keep-audio") && $("keep-audio").checked;
-  if (sourcePreview) {
-    sourcePreview.muted = Boolean(aUrl && !keepOrigAudio);
+  const curDeck = getVisibleVideoDeck();
+  if (curDeck) {
+    curDeck.muted = Boolean(aUrl && !keepOrigAudio);
   }
 
   selectedShotIdx = idx;
   renderTimelineTrack();
   populateInspector();
-  previewSelectedShotInMonitor(true);
+  previewSelectedShotInMonitor(true, false);
 }
 
 if (btnSeqPlay) {
   btnSeqPlay.addEventListener("click", () => {
     if (isPlayingSequence) {
       stopSequencePlayback();
-      if (sourcePreview) sourcePreview.pause();
     } else {
       const startAt = selectedShotIdx >= 0 && selectedShotIdx < shotPlan.length ? selectedShotIdx : 0;
       startSequencePlayback(startAt);
@@ -376,33 +426,44 @@ if (btnSeqPlay) {
 }
 
 // Wire Tactile Source Player Transport Bar (Real-Time Trim Window + Multi-Shot Sequence Loop)
-if (btnSrcPlay && sourcePreview) {
+if (btnSrcPlay) {
   btnSrcPlay.addEventListener("click", () => {
     stopSequencePlayback();
-    sourcePreview.muted = false;
-    if (sourcePreview.paused) {
+    const vid = getVisibleVideoDeck();
+    if (!vid) return;
+    vid.muted = false;
+    if (vid.paused) {
       if (selectedShotIdx >= 0 && selectedShotIdx < shotPlan.length) {
         const s = shotPlan[selectedShotIdx];
         const inPt = Number(s.in_point || 0);
         const outPt = inPt + Number(s.duration || 1.0);
-        if (sourcePreview.currentTime < inPt || sourcePreview.currentTime >= outPt - 0.05) {
-          sourcePreview.currentTime = inPt;
+        if (vid.currentTime < inPt || vid.currentTime >= outPt - 0.05) {
+          vid.currentTime = inPt;
         }
       }
-      sourcePreview.play().catch(() => {});
+      vid.play().catch(() => {});
     } else {
-      sourcePreview.pause();
+      vid.pause();
     }
   });
-  sourcePreview.addEventListener("play", () => {
-    btnSrcPlay.textContent = "❚❚";
+}
+
+function setupVideoDeckListeners(vid) {
+  if (!vid) return;
+  vid.addEventListener("play", () => {
+    if (vid === getVisibleVideoDeck() && btnSrcPlay) {
+      btnSrcPlay.textContent = "❚❚";
+    }
   });
-  sourcePreview.addEventListener("pause", () => {
-    btnSrcPlay.textContent = "▶";
+  vid.addEventListener("pause", () => {
+    if (vid === getVisibleVideoDeck() && btnSrcPlay) {
+      btnSrcPlay.textContent = "▶";
+    }
   });
-  sourcePreview.addEventListener("timeupdate", () => {
-    const dur = sourcePreview.duration || 0;
-    const cur = sourcePreview.currentTime || 0;
+  vid.addEventListener("timeupdate", () => {
+    if (vid !== getVisibleVideoDeck()) return;
+    const dur = vid.duration || 0;
+    const cur = vid.currentTime || 0;
 
     if (selectedShotIdx >= 0 && selectedShotIdx < shotPlan.length) {
       const shot = shotPlan[selectedShotIdx];
@@ -421,24 +482,24 @@ if (btnSrcPlay && sourcePreview) {
           }
         }
         // Advance to next shot in real time when current shot reaches its trimmed out-point
-        if (cur >= outPt - 0.04 || sourcePreview.ended) {
+        if (cur >= outPt - 0.03 || vid.ended) {
           if (selectedShotIdx + 1 < shotPlan.length) {
             selectedShotIdx += 1;
             renderTimelineTrack();
             populateInspector();
-            previewSelectedShotInMonitor(true);
+            previewSelectedShotInMonitor(true, true);
             return;
           } else {
             // End of sequence reached
             stopSequencePlayback();
-            sourcePreview.pause();
+            vid.pause();
           }
         }
-      } else if (!sourcePreview.paused) {
+      } else if (!vid.paused) {
         // Single-shot preview: loop strictly within the trimmed [in_point, out_point] window
         if (cur >= outPt - 0.03) {
-          sourcePreview.currentTime = inPt;
-          sourcePreview.play().catch(() => {});
+          vid.currentTime = inPt;
+          vid.play().catch(() => {});
         }
       }
     }
@@ -460,12 +521,17 @@ if (btnSrcPlay && sourcePreview) {
   });
 }
 
-if (srcSeekSlider && sourcePreview) {
+setupVideoDeckListeners(sourcePreview);
+setupVideoDeckListeners(sourcePreviewB);
+
+if (srcSeekSlider) {
   srcSeekSlider.addEventListener("input", () => {
     stopSequencePlayback();
-    sourcePreview.currentTime = parseFloat(srcSeekSlider.value) || 0;
+    const vid = getVisibleVideoDeck();
+    if (!vid) return;
+    vid.currentTime = parseFloat(srcSeekSlider.value) || 0;
     if (selectedShotIdx >= 0 && selectedShotIdx < shotPlan.length) {
-      updateLiveFadeOverlay(sourcePreview.currentTime, shotPlan[selectedShotIdx]);
+      updateLiveFadeOverlay(vid.currentTime, shotPlan[selectedShotIdx]);
     }
   });
 }
@@ -886,9 +952,14 @@ const inspPaneTrim = $("insp-pane-trim");
 const inspPaneColor = $("insp-pane-color");
 const inspPaneText = $("insp-pane-text");
 
-// Text & Title Overlay DOM
-const textPreviewLayer = $("text-preview-layer");
-const textPreviewBadge = $("text-preview-badge");
+// Text & Title Overlay DOM (Multiple Text Layers Supported)
+const textPreviewContainer = $("text-preview-container");
+const txtItemsStrip = $("txt-items-strip");
+const txtSelectedEditor = $("txt-selected-editor");
+const btnTxtAddItem = $("btn-txt-add-item");
+const btnTxtDuplicate = $("btn-txt-duplicate");
+const btnTxtDeleteSelected = $("btn-txt-delete-selected");
+
 const txtOverlayContent = $("txt-overlay-content");
 const selTxtFont = $("sel-txt-font");
 const optgrpCustomFonts = $("optgrp-custom-fonts");
@@ -947,8 +1018,9 @@ async function loadAvailableFonts(selectFontFamily = null) {
     if (selectFontFamily && selTxtFont) {
       selTxtFont.value = selectFontFamily;
     } else if (selectedShotIdx >= 0 && selectedShotIdx < shotPlan.length && selTxtFont) {
-      const t = ensureShotText(shotPlan[selectedShotIdx]);
-      if (t.font) selTxtFont.value = t.font;
+      const texts = ensureShotTexts(shotPlan[selectedShotIdx]);
+      const cur = texts[activeTextItemIdx] || texts[0];
+      if (cur && cur.font) selTxtFont.value = cur.font;
     }
   } catch (e) {}
 }
@@ -969,8 +1041,10 @@ if (btnUploadFont && inputCustomFont) {
       await loadAvailableFonts(data.family);
       if (selectedShotIdx >= 0 && selectedShotIdx < shotPlan.length) {
         pushUndoState();
-        const t = ensureShotText(shotPlan[selectedShotIdx]);
-        t.font = data.family;
+        const texts = ensureShotTexts(shotPlan[selectedShotIdx]);
+        if (!texts.length) texts.push(defaultTextOverlay());
+        if (activeTextItemIdx < 0 || activeTextItemIdx >= texts.length) activeTextItemIdx = 0;
+        texts[activeTextItemIdx].font = data.family;
         if (selTxtFont) selTxtFont.value = data.family;
         applyTextOverlayToPreview();
         markTimelineDirty();
@@ -1125,9 +1199,9 @@ if (inspSubtabs) {
 }
 
 function applyGradeFilterToPreview() {
-  if (!sourcePreview) return;
   if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) {
-    sourcePreview.style.filter = "none";
+    if (sourcePreview) sourcePreview.style.filter = "none";
+    if (sourcePreviewB) sourcePreviewB.style.filter = "none";
     if (vignettePreviewLayer) vignettePreviewLayer.style.opacity = "0";
     return;
   }
@@ -1144,7 +1218,9 @@ function applyGradeFilterToPreview() {
   const sepia = Math.min(0.35, Math.abs(temp) / 260);
   const hue = Math.round((temp * -0.15) + (tint * 0.25));
 
-  sourcePreview.style.filter = `brightness(${Math.max(0.2, b).toFixed(2)}) contrast(${Math.max(0.3, c).toFixed(2)}) saturate(${s.toFixed(2)}) sepia(${sepia.toFixed(2)}) hue-rotate(${hue}deg)`;
+  const filterStr = `brightness(${Math.max(0.2, b).toFixed(2)}) contrast(${Math.max(0.3, c).toFixed(2)}) saturate(${s.toFixed(2)}) sepia(${sepia.toFixed(2)}) hue-rotate(${hue}deg)`;
+  if (sourcePreview) sourcePreview.style.filter = filterStr;
+  if (sourcePreviewB) sourcePreviewB.style.filter = filterStr;
   if (vignettePreviewLayer) {
     const vig = Math.max(0, Math.min(100, Number(g.vignette || 0)));
     vignettePreviewLayer.style.opacity = (vig / 100).toFixed(2);
@@ -1152,82 +1228,153 @@ function applyGradeFilterToPreview() {
 }
 
 function applyTextOverlayToPreview() {
-  if (!textPreviewLayer || !textPreviewBadge) return;
-  if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) {
-    textPreviewLayer.classList.add("hidden");
-    return;
-  }
-  const t = ensureShotText(shotPlan[selectedShotIdx]);
-  const raw = (t.content || "").trim();
-  if (!raw) {
-    textPreviewLayer.classList.add("hidden");
-    return;
-  }
+  if (!textPreviewContainer) return;
+  textPreviewContainer.innerHTML = "";
+  if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
 
-  textPreviewLayer.classList.remove("hidden");
-  textPreviewBadge.textContent = raw;
+  const shot = shotPlan[selectedShotIdx];
+  const texts = ensureShotTexts(shot);
+  if (!texts.length) return;
 
   const vpRect = reframeViewport ? reframeViewport.getBoundingClientRect() : null;
   const vpW = vpRect && vpRect.width ? vpRect.width : 280;
   const scaleRatio = vpW / (projectWidth || 1080);
-  const pxSize = Math.max(11, Math.round(Number(t.size || 56) * scaleRatio));
 
-  const rawFont = t.font || "Arial Bold";
-  const cssFontName = rawFont.replace(/^Custom:\s*/i, "").trim();
-  const cleanOsFontName = cssFontName.replace(/\s+(Bold|Italic|Regular|Medium|Light|Black|Heavy)$/i, "").trim();
-  textPreviewBadge.style.fontFamily = `"${cssFontName}", "${cleanOsFontName}", sans-serif`;
-  textPreviewBadge.style.fontSize = `${pxSize}px`;
-  textPreviewBadge.style.color = t.color || "#FFFFFF";
+  texts.forEach((t, tIdx) => {
+    const raw = (t.content || "").trim();
+    if (!raw) return;
 
-  const bgStyle = t.bg_style || "plain";
-  const bgCol = t.bg_color || "#1F2C38";
-  if (bgStyle === "pill") {
-    textPreviewBadge.style.background = bgCol;
-    textPreviewBadge.style.borderRadius = "999px";
-    textPreviewBadge.style.padding = `${Math.max(4, Math.round(pxSize * 0.25))}px ${Math.max(10, Math.round(pxSize * 0.48))}px`;
-    textPreviewBadge.style.border = "1px solid rgba(231,237,242,0.22)";
-    textPreviewBadge.style.boxShadow = "0 4px 14px rgba(15, 22, 28, 0.55)";
-    textPreviewBadge.style.textShadow = "0 1px 2px rgba(15,22,28,0.6)";
-  } else if (bgStyle === "box") {
-    textPreviewBadge.style.background = bgCol;
-    textPreviewBadge.style.borderRadius = "6px";
-    textPreviewBadge.style.padding = `${Math.max(4, Math.round(pxSize * 0.25))}px ${Math.max(10, Math.round(pxSize * 0.45))}px`;
-    textPreviewBadge.style.border = "1px solid rgba(231,237,242,0.22)";
-    textPreviewBadge.style.boxShadow = "0 4px 14px rgba(15, 22, 28, 0.55)";
-    textPreviewBadge.style.textShadow = "0 1px 2px rgba(15,22,28,0.6)";
-  } else if (bgStyle === "outline") {
-    textPreviewBadge.style.background = "transparent";
-    textPreviewBadge.style.border = "none";
-    textPreviewBadge.style.boxShadow = "none";
-    textPreviewBadge.style.padding = "2px 4px";
-    textPreviewBadge.style.textShadow = "-1.5px -1.5px 0 #0F161C, 1.5px -1.5px 0 #0F161C, -1.5px 1.5px 0 #0F161C, 1.5px 1.5px 0 #0F161C, 0 3px 8px rgba(15,22,28,0.85)";
-  } else if (bgStyle === "plain") {
-    textPreviewBadge.style.background = "transparent";
-    textPreviewBadge.style.border = "none";
-    textPreviewBadge.style.boxShadow = "none";
-    textPreviewBadge.style.padding = "2px 4px";
-    textPreviewBadge.style.textShadow = "none";
-  } else {
-    textPreviewBadge.style.background = "transparent";
-    textPreviewBadge.style.border = "none";
-    textPreviewBadge.style.boxShadow = "none";
-    textPreviewBadge.style.padding = "2px 4px";
-    textPreviewBadge.style.textShadow = "0 2px 10px rgba(15,22,28,0.95)";
+    const badgeWrap = document.createElement("div");
+    badgeWrap.className = "text-preview-layer" + (tIdx === activeTextItemIdx ? " selected-text-item" : "");
+    badgeWrap.dataset.tidx = String(tIdx);
+
+    const badge = document.createElement("span");
+    badge.className = "text-preview-badge";
+    badge.textContent = raw;
+
+    const pxSize = Math.max(11, Math.round(Number(t.size || 56) * scaleRatio));
+    const rawFont = t.font || "Arial Bold";
+    const cssFontName = rawFont.replace(/^Custom:\s*/i, "").trim();
+    const cleanOsFontName = cssFontName.replace(/\s+(Bold|Italic|Regular|Medium|Light|Black|Heavy)$/i, "").trim();
+    badge.style.fontFamily = `"${cssFontName}", "${cleanOsFontName}", sans-serif`;
+    badge.style.fontSize = `${pxSize}px`;
+    badge.style.color = t.color || "#FFFFFF";
+
+    const bgStyle = t.bg_style || "plain";
+    const bgCol = t.bg_color || "#1F2C38";
+    if (bgStyle === "pill") {
+      badge.style.background = bgCol;
+      badge.style.borderRadius = "999px";
+      badge.style.padding = `${Math.max(4, Math.round(pxSize * 0.25))}px ${Math.max(10, Math.round(pxSize * 0.48))}px`;
+      badge.style.border = "1px solid rgba(231,237,242,0.22)";
+      badge.style.boxShadow = "0 4px 14px rgba(15, 22, 28, 0.55)";
+      badge.style.textShadow = "0 1px 2px rgba(15,22,28,0.6)";
+    } else if (bgStyle === "box") {
+      badge.style.background = bgCol;
+      badge.style.borderRadius = "6px";
+      badge.style.padding = `${Math.max(4, Math.round(pxSize * 0.25))}px ${Math.max(10, Math.round(pxSize * 0.45))}px`;
+      badge.style.border = "1px solid rgba(231,237,242,0.22)";
+      badge.style.boxShadow = "0 4px 14px rgba(15, 22, 28, 0.55)";
+      badge.style.textShadow = "0 1px 2px rgba(15,22,28,0.6)";
+    } else if (bgStyle === "outline") {
+      badge.style.background = "transparent";
+      badge.style.border = "none";
+      badge.style.boxShadow = "none";
+      badge.style.padding = "2px 4px";
+      badge.style.textShadow = "-1.5px -1.5px 0 #0F161C, 1.5px -1.5px 0 #0F161C, -1.5px 1.5px 0 #0F161C, 1.5px 1.5px 0 #0F161C, 0 3px 8px rgba(15,22,28,0.85)";
+    } else if (bgStyle === "plain") {
+      badge.style.background = "transparent";
+      badge.style.border = "none";
+      badge.style.boxShadow = "none";
+      badge.style.padding = "2px 4px";
+      badge.style.textShadow = "none";
+    } else {
+      badge.style.background = "transparent";
+      badge.style.border = "none";
+      badge.style.boxShadow = "none";
+      badge.style.padding = "2px 4px";
+      badge.style.textShadow = "0 2px 10px rgba(15,22,28,0.95)";
+    }
+
+    const posX = Math.max(5, Math.min(95, Number(t.x !== undefined ? t.x : 50)));
+    const posY = Math.max(5, Math.min(95, Number(t.y !== undefined ? t.y : 82)));
+    badgeWrap.style.left = `${posX.toFixed(1)}%`;
+    badgeWrap.style.top = `${posY.toFixed(1)}%`;
+
+    badgeWrap.appendChild(badge);
+
+    // Clicking a text on screen selects it in inspector and initiates drag
+    badgeWrap.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      e.stopPropagation();
+      e.preventDefault();
+      pushUndoState();
+      activeTextItemIdx = tIdx;
+      switchInspectorSubtab("text");
+      populateTextControls(shot);
+      renderTextItemPills(shot);
+      applyTextOverlayToPreview();
+
+      isDraggingText = true;
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+      dragOrigTxtX = Number(t.x !== undefined ? t.x : 50);
+      dragOrigTxtY = Number(t.y !== undefined ? t.y : 82);
+    });
+
+    textPreviewContainer.appendChild(badgeWrap);
+  });
+}
+
+function renderTextItemPills(shot) {
+  if (!txtItemsStrip) return;
+  txtItemsStrip.innerHTML = "";
+  const texts = ensureShotTexts(shot);
+
+  if (!texts.length) {
+    txtItemsStrip.innerHTML = '<span style="font-size:11px; color:var(--text-dim); padding:2px 4px;">No text layers on this clip yet. Click ➕ Add Text above.</span>';
+    if (txtSelectedEditor) txtSelectedEditor.classList.add("hidden");
+    return;
   }
 
-  const posX = Math.max(5, Math.min(95, Number(t.x !== undefined ? t.x : 50)));
-  const posY = Math.max(5, Math.min(95, Number(t.y !== undefined ? t.y : 82)));
-  textPreviewLayer.style.left = `${posX.toFixed(1)}%`;
-  textPreviewLayer.style.top = `${posY.toFixed(1)}%`;
-  if (txtPosReadout) {
-    txtPosReadout.textContent = `Position: X ${Math.round(posX)}% · Y ${Math.round(posY)}% (Drag text in monitor to move)`;
-  }
+  if (txtSelectedEditor) txtSelectedEditor.classList.remove("hidden");
+  if (activeTextItemIdx < 0 || activeTextItemIdx >= texts.length) activeTextItemIdx = 0;
+
+  texts.forEach((t, i) => {
+    const pill = document.createElement("div");
+    pill.className = "txt-item-pill" + (i === activeTextItemIdx ? " active" : "");
+    const preview = (t.content || "").trim().slice(0, 14) || `Text #${i + 1}`;
+    pill.innerHTML = `
+      <span>${preview}</span>
+      <span class="pill-del" title="Delete this text layer">✕</span>
+    `;
+    pill.addEventListener("click", (e) => {
+      if (e.target.closest(".pill-del")) {
+        e.stopPropagation();
+        pushUndoState();
+        texts.splice(i, 1);
+        if (activeTextItemIdx >= texts.length) activeTextItemIdx = Math.max(0, texts.length - 1);
+        shot.text = texts.length ? texts[0] : defaultTextOverlay();
+        renderTimelineTrack();
+        populateTextControls(shot);
+        applyTextOverlayToPreview();
+        markTimelineDirty();
+        return;
+      }
+      activeTextItemIdx = i;
+      populateTextControls(shot);
+      applyTextOverlayToPreview();
+      renderTextItemPills(shot);
+    });
+    txtItemsStrip.appendChild(pill);
+  });
 }
 
 function applyReframeTransformToPreview() {
-  if (!sourcePreview) return;
+  const curDeck = getVisibleVideoDeck();
+  if (!curDeck) return;
   if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) {
-    sourcePreview.style.transform = "translate(0%, 0%) scale(1)";
+    curDeck.style.transform = "translate(0%, 0%) scale(1)";
     applyGradeFilterToPreview();
     applyTextOverlayToPreview();
     return;
@@ -1237,7 +1384,10 @@ function applyReframeTransformToPreview() {
   const panX = Number(shot.pan_x || 0);
   const panY = Number(shot.pan_y || 0);
 
-  sourcePreview.style.transform = `translate(${panX.toFixed(2)}%, ${panY.toFixed(2)}%) scale(${(zoom / 100).toFixed(3)})`;
+  const transformStyle = `translate(${panX.toFixed(2)}%, ${panY.toFixed(2)}%) scale(${(zoom / 100).toFixed(3)})`;
+  if (sourcePreview) sourcePreview.style.transform = transformStyle;
+  if (sourcePreviewB) sourcePreviewB.style.transform = transformStyle;
+
   if (inspZoomSlider) inspZoomSlider.value = Math.round(zoom);
   if (inspZoomVal) inspZoomVal.textContent = `${Math.round(zoom)}%`;
   if (inspPanReadout) {
@@ -1256,23 +1406,6 @@ let dragOrigPanX = 0;
 let dragOrigPanY = 0;
 let dragOrigTxtX = 50;
 let dragOrigTxtY = 82;
-
-if (textPreviewLayer) {
-  textPreviewLayer.addEventListener("mousedown", (e) => {
-    if (e.button !== 0) return;
-    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
-    e.stopPropagation();
-    e.preventDefault();
-    pushUndoState();
-    switchInspectorSubtab("text");
-    isDraggingText = true;
-    dragStartX = e.clientX;
-    dragStartY = e.clientY;
-    const t = ensureShotText(shotPlan[selectedShotIdx]);
-    dragOrigTxtX = Number(t.x !== undefined ? t.x : 50);
-    dragOrigTxtY = Number(t.y !== undefined ? t.y : 82);
-  });
-}
 
 if (reframeViewport) {
   reframeViewport.addEventListener("mousedown", (e) => {
@@ -1298,11 +1431,17 @@ if (reframeViewport) {
       if (!rect.width || !rect.height) return;
       const dxPct = ((e.clientX - dragStartX) / rect.width) * 100;
       const dyPct = ((e.clientY - dragStartY) / rect.height) * 100;
-      const t = ensureShotText(shotPlan[selectedShotIdx]);
-      t.x = Math.max(5, Math.min(95, dragOrigTxtX + dxPct));
-      t.y = Math.max(5, Math.min(95, dragOrigTxtY + dyPct));
-      applyTextOverlayToPreview();
-      markTimelineDirty();
+      const texts = ensureShotTexts(shotPlan[selectedShotIdx]);
+      if (texts[activeTextItemIdx]) {
+        const cur = texts[activeTextItemIdx];
+        cur.x = Math.max(5, Math.min(95, dragOrigTxtX + dxPct));
+        cur.y = Math.max(5, Math.min(95, dragOrigTxtY + dyPct));
+        applyTextOverlayToPreview();
+        if (txtPosReadout) {
+          txtPosReadout.textContent = `Position: X ${Math.round(cur.x)}% · Y ${Math.round(cur.y)}% (Drag text in monitor to move)`;
+        }
+        markTimelineDirty();
+      }
       return;
     }
     if (!isDraggingReframe || selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
@@ -1344,41 +1483,99 @@ if (reframeViewport) {
   );
 }
 
-function previewSelectedShotInMonitor(autoPlay = true) {
-  if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
-  const shot = shotPlan[selectedShotIdx];
-  if (!shot || !shot.clip || shot.clip.includes("(awaiting clips)")) return;
-
-  let targetSrc = null;
+function resolveClipSourceUrl(clipName) {
+  if (!clipName || clipName.includes("(awaiting clips)")) return null;
   if (!localFolderPath && clipFiles.length) {
-    const f = clipFiles.find((cf) => cf.name === shot.clip);
+    const f = clipFiles.find((cf) => cf.name === clipName);
     if (f) {
       if (!f._blobUrl) f._blobUrl = URL.createObjectURL(f);
-      targetSrc = f._blobUrl;
+      return f._blobUrl;
     }
   } else if (jobId) {
-    targetSrc = `/api/clip_preview/${jobId}/${encodeURIComponent(shot.clip)}`;
+    return `/api/clip_preview/${jobId}/${encodeURIComponent(clipName)}`;
+  }
+  return null;
+}
+
+// Preload upcoming shot into the standby deck so there is ZERO black flash when cutting!
+function preloadNextShotIntoStandby(nextShotIdx) {
+  if (nextShotIdx < 0 || nextShotIdx >= shotPlan.length || !sourcePreviewB) return;
+  const nextShot = shotPlan[nextShotIdx];
+  const targetSrc = resolveClipSourceUrl(nextShot.clip);
+  if (!targetSrc) return;
+
+  const standby = getStandbyVideoDeck();
+  if (standby.getAttribute("data-clip") !== nextShot.clip || standby.getAttribute("src") !== targetSrc) {
+    standby.src = targetSrc;
+    standby.setAttribute("data-clip", nextShot.clip);
+  }
+  standby.muted = true;
+  const seekTo = Number(nextShot.in_point || 0);
+  const applySeek = () => {
+    try {
+      standby.currentTime = seekTo;
+    } catch (e) {}
+  };
+  if (standby.readyState >= 1) {
+    applySeek();
+  } else {
+    standby.addEventListener("loadedmetadata", applySeek, { once: true });
+  }
+}
+
+function previewSelectedShotInMonitor(autoPlay = true, useDeckSwitch = false) {
+  if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+  const shot = shotPlan[selectedShotIdx];
+  const targetSrc = resolveClipSourceUrl(shot.clip);
+  if (!targetSrc) return;
+
+  const keepOrigAudio = $("keep-audio") && $("keep-audio").checked;
+  const aUrl = getActiveAudioUrl();
+
+  let activeVideo = getVisibleVideoDeck();
+  let outgoingVideo = null;
+  if (useDeckSwitch && sourcePreviewB) {
+    outgoingVideo = activeVideo;
+    activeVideo = getStandbyVideoDeck();
   }
 
-  if (targetSrc) {
-    if (sourcePreview.getAttribute("data-clip") !== shot.clip) {
-      sourcePreview.src = targetSrc;
-      sourcePreview.setAttribute("data-clip", shot.clip);
+  const isSameClip = (activeVideo.getAttribute("data-clip") === shot.clip) && (activeVideo.getAttribute("src") === targetSrc);
+  if (!isSameClip) {
+    activeVideo.src = targetSrc;
+    activeVideo.setAttribute("data-clip", shot.clip);
+  }
+
+  showMonitorTab("source");
+  applyReframeTransformToPreview();
+
+  const seekTo = Number(shot.in_point || 0);
+  activeVideo.muted = isPlayingSequence ? Boolean(aUrl && !keepOrigAudio) : false;
+
+  const applySeekAndPlay = () => {
+    try {
+      if (Math.abs(activeVideo.currentTime - seekTo) > 0.05) {
+        activeVideo.currentTime = seekTo;
+      }
+      if (autoPlay) activeVideo.play().catch(() => {});
+    } catch (e) {}
+    if (useDeckSwitch && sourcePreviewB) {
+      switchActiveVideoDeck();
+      if (outgoingVideo) {
+        outgoingVideo.pause();
+        outgoingVideo.muted = true;
+      }
     }
-    showMonitorTab("source");
-    applyReframeTransformToPreview();
-    const seekTo = Number(shot.in_point || 0);
-    const applySeek = () => {
-      try {
-        sourcePreview.currentTime = seekTo;
-        if (autoPlay) sourcePreview.play().catch(() => {});
-      } catch (e) {}
-    };
-    if (sourcePreview.readyState >= 1) {
-      applySeek();
-    } else {
-      sourcePreview.addEventListener("loadedmetadata", applySeek, { once: true });
-    }
+  };
+
+  if (activeVideo.readyState >= 1) {
+    applySeekAndPlay();
+  } else {
+    activeVideo.addEventListener("loadedmetadata", applySeekAndPlay, { once: true });
+  }
+
+  // Pre-buffer next shot in the background for instant 0ms cut
+  if (selectedShotIdx + 1 < shotPlan.length) {
+    preloadNextShotIntoStandby(selectedShotIdx + 1);
   }
 }
 
@@ -1544,11 +1741,11 @@ function renderTimelineTrack() {
     const shortClip = (shot.clip || "").replace(/\.(mov|mp4|m4v|mkv|avi|webm)$/i, "");
     const zoomNum = Math.round(shot.zoom !== undefined ? shot.zoom : 100);
     const g = shot.grade || {};
-    const t = ensureShotText(shot);
+    const texts = ensureShotTexts(shot);
     const hasGrade =
       g.brightness || g.contrast || g.saturation || g.temperature || g.tint || g.whites || g.blacks || g.vignette ||
       (g.curve && g.curve !== "none") || g.fade_in > 0 || g.fade_out > 0;
-    const hasText = Boolean((t.content || "").trim());
+    const hasText = texts.some((tx) => Boolean((tx.content || "").trim()));
     const gradeDot = (hasGrade ? " 🎨" : "") + (hasText ? " 🔤" : "");
     const tagBadge = shot.tag
       ? `<span class="tl-shot-tag">${shot.tag}${gradeDot}</span>`
@@ -1856,7 +2053,21 @@ function populateInspector() {
 }
 
 function populateTextControls(shot) {
-  const t = ensureShotText(shot);
+  if (!shot) return;
+  const texts = ensureShotTexts(shot);
+  renderTextItemPills(shot);
+
+  if (!texts.length) {
+    if (txtSelectedEditor) txtSelectedEditor.classList.add("hidden");
+    return;
+  }
+  if (txtSelectedEditor) txtSelectedEditor.classList.remove("hidden");
+
+  if (activeTextItemIdx < 0 || activeTextItemIdx >= texts.length) {
+    activeTextItemIdx = 0;
+  }
+  const t = texts[activeTextItemIdx];
+
   if (txtOverlayContent && document.activeElement !== txtOverlayContent) {
     txtOverlayContent.value = t.content || "";
   }
@@ -1867,8 +2078,70 @@ function populateTextControls(shot) {
   if (colTxtColor) colTxtColor.value = t.color || "#FFFFFF";
   if (colTxtBg) colTxtBg.value = t.bg_color || "#1F2C38";
   if (txtPosReadout) {
-    txtPosReadout.textContent = `Position: X ${Math.round(t.x || 50)}% · Y ${Math.round(t.y || 82)}% (Drag text in monitor to move)`;
+    txtPosReadout.textContent = `Position: X ${Math.round(t.x !== undefined ? t.x : 50)}% · Y ${Math.round(t.y !== undefined ? t.y : 82)}% (Drag text in monitor to move)`;
   }
+}
+
+if (btnTxtAddItem) {
+  btnTxtAddItem.addEventListener("click", () => {
+    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+    pushUndoState();
+    const shot = shotPlan[selectedShotIdx];
+    const texts = ensureShotTexts(shot);
+    const nextY = texts.length === 0 ? 82 : texts.length === 1 ? 50 : texts.length === 2 ? 20 : Math.max(15, Math.min(85, 50 + (texts.length * 7)));
+    const newText = defaultTextOverlay(nextY);
+    newText.content = `Title #${texts.length + 1}`;
+    texts.push(newText);
+    shot.text = texts[0];
+    activeTextItemIdx = texts.length - 1;
+
+    populateTextControls(shot);
+    applyTextOverlayToPreview();
+    renderTimelineTrack();
+    markTimelineDirty();
+    if (txtOverlayContent) {
+      txtOverlayContent.focus();
+      txtOverlayContent.select();
+    }
+  });
+}
+
+if (btnTxtDuplicate) {
+  btnTxtDuplicate.addEventListener("click", () => {
+    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+    const shot = shotPlan[selectedShotIdx];
+    const texts = ensureShotTexts(shot);
+    if (!texts.length || activeTextItemIdx < 0 || activeTextItemIdx >= texts.length) return;
+    pushUndoState();
+    const cloned = JSON.parse(JSON.stringify(texts[activeTextItemIdx]));
+    cloned.y = Math.min(92, (cloned.y || 82) + 8);
+    texts.push(cloned);
+    shot.text = texts[0];
+    activeTextItemIdx = texts.length - 1;
+
+    populateTextControls(shot);
+    applyTextOverlayToPreview();
+    renderTimelineTrack();
+    markTimelineDirty();
+  });
+}
+
+if (btnTxtDeleteSelected) {
+  btnTxtDeleteSelected.addEventListener("click", () => {
+    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+    const shot = shotPlan[selectedShotIdx];
+    const texts = ensureShotTexts(shot);
+    if (!texts.length) return;
+    pushUndoState();
+    texts.splice(activeTextItemIdx, 1);
+    if (activeTextItemIdx >= texts.length) activeTextItemIdx = Math.max(0, texts.length - 1);
+    shot.text = texts.length ? texts[0] : defaultTextOverlay();
+
+    populateTextControls(shot);
+    applyTextOverlayToPreview();
+    renderTimelineTrack();
+    markTimelineDirty();
+  });
 }
 
 if (txtOverlayContent) {
@@ -1877,10 +2150,18 @@ if (txtOverlayContent) {
   });
   txtOverlayContent.addEventListener("input", () => {
     if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
-    const t = ensureShotText(shotPlan[selectedShotIdx]);
+    const shot = shotPlan[selectedShotIdx];
+    const texts = ensureShotTexts(shot);
+    if (!texts.length) {
+      texts.push(defaultTextOverlay());
+      activeTextItemIdx = 0;
+    }
+    const t = texts[activeTextItemIdx];
     t.content = txtOverlayContent.value;
+    shot.text = texts[0];
     showMonitorTab("source");
     applyTextOverlayToPreview();
+    renderTextItemPills(shot);
     renderTimelineTrack();
     markTimelineDirty();
   });
@@ -1890,11 +2171,15 @@ if (selTxtFont) {
   selTxtFont.addEventListener("change", () => {
     if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
     pushUndoState();
-    const t = ensureShotText(shotPlan[selectedShotIdx]);
-    t.font = selTxtFont.value;
-    showMonitorTab("source");
-    applyTextOverlayToPreview();
-    markTimelineDirty();
+    const shot = shotPlan[selectedShotIdx];
+    const texts = ensureShotTexts(shot);
+    if (texts[activeTextItemIdx]) {
+      texts[activeTextItemIdx].font = selTxtFont.value;
+      shot.text = texts[0];
+      showMonitorTab("source");
+      applyTextOverlayToPreview();
+      markTimelineDirty();
+    }
   });
 }
 
@@ -1902,11 +2187,15 @@ if (selTxtBgStyle) {
   selTxtBgStyle.addEventListener("change", () => {
     if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
     pushUndoState();
-    const t = ensureShotText(shotPlan[selectedShotIdx]);
-    t.bg_style = selTxtBgStyle.value;
-    showMonitorTab("source");
-    applyTextOverlayToPreview();
-    markTimelineDirty();
+    const shot = shotPlan[selectedShotIdx];
+    const texts = ensureShotTexts(shot);
+    if (texts[activeTextItemIdx]) {
+      texts[activeTextItemIdx].bg_style = selTxtBgStyle.value;
+      shot.text = texts[0];
+      showMonitorTab("source");
+      applyTextOverlayToPreview();
+      markTimelineDirty();
+    }
   });
 }
 
@@ -1917,34 +2206,46 @@ if (slTxtSize) {
   slTxtSize.addEventListener("input", () => {
     if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
     const sz = parseInt(slTxtSize.value, 10) || 56;
-    const t = ensureShotText(shotPlan[selectedShotIdx]);
-    t.size = sz;
-    if (valTxtSize) valTxtSize.textContent = `${sz}px`;
-    showMonitorTab("source");
-    applyTextOverlayToPreview();
-    markTimelineDirty();
+    const shot = shotPlan[selectedShotIdx];
+    const texts = ensureShotTexts(shot);
+    if (texts[activeTextItemIdx]) {
+      texts[activeTextItemIdx].size = sz;
+      shot.text = texts[0];
+      if (valTxtSize) valTxtSize.textContent = `${sz}px`;
+      showMonitorTab("source");
+      applyTextOverlayToPreview();
+      markTimelineDirty();
+    }
   });
 }
 
 if (colTxtColor) {
   colTxtColor.addEventListener("input", () => {
     if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
-    const t = ensureShotText(shotPlan[selectedShotIdx]);
-    t.color = colTxtColor.value;
-    showMonitorTab("source");
-    applyTextOverlayToPreview();
-    markTimelineDirty();
+    const shot = shotPlan[selectedShotIdx];
+    const texts = ensureShotTexts(shot);
+    if (texts[activeTextItemIdx]) {
+      texts[activeTextItemIdx].color = colTxtColor.value;
+      shot.text = texts[0];
+      showMonitorTab("source");
+      applyTextOverlayToPreview();
+      markTimelineDirty();
+    }
   });
 }
 
 if (colTxtBg) {
   colTxtBg.addEventListener("input", () => {
     if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
-    const t = ensureShotText(shotPlan[selectedShotIdx]);
-    t.bg_color = colTxtBg.value;
-    showMonitorTab("source");
-    applyTextOverlayToPreview();
-    markTimelineDirty();
+    const shot = shotPlan[selectedShotIdx];
+    const texts = ensureShotTexts(shot);
+    if (texts[activeTextItemIdx]) {
+      texts[activeTextItemIdx].bg_color = colTxtBg.value;
+      shot.text = texts[0];
+      showMonitorTab("source");
+      applyTextOverlayToPreview();
+      markTimelineDirty();
+    }
   });
 }
 
@@ -1952,12 +2253,20 @@ Array.from(document.querySelectorAll(".txt-pos-btn")).forEach((btn) => {
   btn.addEventListener("click", () => {
     if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
     pushUndoState();
-    const t = ensureShotText(shotPlan[selectedShotIdx]);
-    t.x = 50;
-    t.y = parseFloat(btn.dataset.y) || 82;
-    showMonitorTab("source");
-    applyTextOverlayToPreview();
-    markTimelineDirty();
+    const shot = shotPlan[selectedShotIdx];
+    const texts = ensureShotTexts(shot);
+    if (texts[activeTextItemIdx]) {
+      const cur = texts[activeTextItemIdx];
+      cur.x = 50;
+      cur.y = parseFloat(btn.dataset.y) || 82;
+      shot.text = texts[0];
+      if (txtPosReadout) {
+        txtPosReadout.textContent = `Position: X 50% · Y ${Math.round(cur.y)}% (Drag text in monitor to move)`;
+      }
+      showMonitorTab("source");
+      applyTextOverlayToPreview();
+      markTimelineDirty();
+    }
   });
 });
 
@@ -1965,13 +2274,14 @@ if (btnTxtAll) {
   btnTxtAll.addEventListener("click", () => {
     if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
     pushUndoState();
-    const srcTxt = JSON.parse(JSON.stringify(ensureShotText(shotPlan[selectedShotIdx])));
+    const srcTexts = JSON.parse(JSON.stringify(ensureShotTexts(shotPlan[selectedShotIdx])));
     shotPlan.forEach((s) => {
-      s.text = JSON.parse(JSON.stringify(srcTxt));
+      s.texts = JSON.parse(JSON.stringify(srcTexts));
+      s.text = s.texts.length ? s.texts[0] : defaultTextOverlay();
     });
     renderTimelineTrack();
     markTimelineDirty();
-    setStatus(buildStatus, "✨ Copied text overlay to all shots on the timeline!", "success");
+    setStatus(buildStatus, `✨ Copied ${srcTexts.length} text layer(s) to all shots on the timeline!`, "success");
   });
 }
 
@@ -1979,9 +2289,11 @@ if (btnTxtClear) {
   btnTxtClear.addEventListener("click", () => {
     if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
     pushUndoState();
-    shotPlan[selectedShotIdx].text = defaultTextOverlay();
-    if (txtOverlayContent) txtOverlayContent.value = "";
-    populateTextControls(shotPlan[selectedShotIdx]);
+    const shot = shotPlan[selectedShotIdx];
+    shot.texts = [];
+    shot.text = defaultTextOverlay();
+    activeTextItemIdx = 0;
+    populateTextControls(shot);
     applyTextOverlayToPreview();
     renderTimelineTrack();
     markTimelineDirty();
@@ -1993,16 +2305,17 @@ if (btnTxtMasterClear) {
     if (!shotPlan || !shotPlan.length) return;
     pushUndoState();
     shotPlan.forEach((s) => {
+      s.texts = [];
       s.text = defaultTextOverlay();
     });
-    if (txtOverlayContent) txtOverlayContent.value = "";
+    activeTextItemIdx = 0;
     if (selectedShotIdx >= 0 && selectedShotIdx < shotPlan.length) {
       populateTextControls(shotPlan[selectedShotIdx]);
     }
     applyTextOverlayToPreview();
     renderTimelineTrack();
     markTimelineDirty();
-    setStatus(buildStatus, "🔄 Cleared text overlays from all shots in the timeline.", "success");
+    setStatus(buildStatus, "🔄 Master Reset: Cleared all text overlays from all shots on the timeline.", "success");
   });
 }
 
