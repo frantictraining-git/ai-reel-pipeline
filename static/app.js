@@ -350,6 +350,7 @@ function updateLiveFadeOverlay(currentClipTime, shot) {
 
 function stopSequencePlayback() {
   isPlayingSequence = false;
+  stopPlayheadAnimLoop();
   if (btnSeqPlay) {
     btnSeqPlay.textContent = "▶ Play Sequence";
   }
@@ -365,6 +366,7 @@ function stopSequencePlayback() {
   if (fadePreviewLayer) {
     fadePreviewLayer.style.opacity = "0";
   }
+  updatePlayheadPosition(getCurrentSequenceTime());
 }
 
 function startSequencePlayback(startIdx = 0) {
@@ -383,7 +385,17 @@ function startSequencePlayback(startIdx = 0) {
   for (let i = 0; i < idx; i++) {
     offsetBeforeShot += Number(shotPlan[i].duration || 0);
   }
-  seqPlaybackStartTime = performance.now() - offsetBeforeShot * 1000;
+
+  const curDeck = getVisibleVideoDeck();
+  const currentShot = shotPlan[idx];
+  const inPt = Number(currentShot.in_point || 0);
+  const outPt = inPt + Number(currentShot.duration || 1.0);
+  let intraShotOffset = 0;
+  if (curDeck && curDeck.currentTime >= inPt && curDeck.currentTime < outPt - 0.05) {
+    intraShotOffset = curDeck.currentTime - inPt;
+  }
+
+  seqPlaybackStartTime = performance.now() - (offsetBeforeShot + intraShotOffset) * 1000;
 
   const aUrl = getActiveAudioUrl();
   if (liveAudioPlayer && aUrl) {
@@ -392,9 +404,9 @@ function startSequencePlayback(startIdx = 0) {
       liveAudioPlayer.setAttribute("data-src", aUrl);
     }
     syncLiveAudioVolume();
-    const targetAudioTime = Number(audioStartOffset || 0) + offsetBeforeShot;
+    const targetAudioTime = Number(audioStartOffset || 0) + offsetBeforeShot + intraShotOffset;
     const maxAudioDur = Number(audioDurationSec || 0);
-    if (maxAudioDur <= 0.1 || offsetBeforeShot < maxAudioDur) {
+    if (maxAudioDur <= 0.1 || (offsetBeforeShot + intraShotOffset) < maxAudioDur) {
       try {
         liveAudioPlayer.currentTime = targetAudioTime;
         liveAudioPlayer.play().catch(() => {});
@@ -403,7 +415,6 @@ function startSequencePlayback(startIdx = 0) {
   }
 
   const keepOrigAudio = $("keep-audio") && $("keep-audio").checked;
-  const curDeck = getVisibleVideoDeck();
   if (curDeck) {
     curDeck.muted = Boolean(aUrl && !keepOrigAudio);
   }
@@ -411,7 +422,8 @@ function startSequencePlayback(startIdx = 0) {
   selectedShotIdx = idx;
   renderTimelineTrack();
   populateInspector();
-  previewSelectedShotInMonitor(true, false);
+  previewSelectedShotInMonitor(true, false, inPt + intraShotOffset);
+  startPlayheadAnimLoop();
 }
 
 if (btnSeqPlay) {
@@ -419,7 +431,16 @@ if (btnSeqPlay) {
     if (isPlayingSequence) {
       stopSequencePlayback();
     } else {
-      const startAt = selectedShotIdx >= 0 && selectedShotIdx < shotPlan.length ? selectedShotIdx : 0;
+      const totalDur = shotPlan.reduce((acc, s) => acc + Number(s.duration || 0), 0);
+      const curSeq = getCurrentSequenceTime();
+      let startAt = selectedShotIdx >= 0 && selectedShotIdx < shotPlan.length ? selectedShotIdx : 0;
+      if (totalDur > 0 && curSeq >= totalDur - 0.05) {
+        startAt = 0;
+        const curDeck = getVisibleVideoDeck();
+        if (curDeck && shotPlan[0]) {
+          curDeck.currentTime = Number(shotPlan[0].in_point || 0);
+        }
+      }
       startSequencePlayback(startAt);
     }
   });
@@ -517,6 +538,10 @@ function setupVideoDeckListeners(vid) {
       } else {
         srcTimeReadout.textContent = `${cur.toFixed(1)}s / ${dur.toFixed(1)}s`;
       }
+    }
+
+    if (!isPlayingSequence && !isScrubbingPlayhead) {
+      updatePlayheadPosition(getCurrentSequenceTime());
     }
   });
 }
@@ -952,6 +977,14 @@ const inspPaneTrim = $("insp-pane-trim");
 const inspPaneColor = $("insp-pane-color");
 const inspPaneText = $("insp-pane-text");
 
+// Timeline Playhead (CTI) & Scrubbing DOM
+const timelineTracksWrap = $("timeline-tracks-wrap");
+const tlPlayhead = $("tl-playhead");
+const tlPlayheadHead = $("tl-playhead-head");
+const tlPlayheadReadout = $("tl-playhead-readout");
+let isScrubbingPlayhead = false;
+let playheadRafId = null;
+
 // Timeline Text Track DOM (CapCut Style T1 Text Track)
 const tlTextStrip = $("tl-text-strip");
 const btnAddTimelineText = $("btn-add-timeline-text");
@@ -1272,6 +1305,136 @@ function getCurrentSequenceTime() {
   return Math.max(0, offset + (cur - inPt));
 }
 
+function formatTimecode(sec) {
+  const s = Math.max(0, Number(sec || 0));
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  const wholeSec = Math.floor(rem);
+  const centi = Math.floor((rem - wholeSec) * 100);
+  return `${String(m).padStart(2, "0")}:${String(wholeSec).padStart(2, "0")}.${String(centi).padStart(2, "0")}`;
+}
+
+function getTimelineTrackOrigin() {
+  if (tlRulerStrip && timelineTracksWrap) {
+    const wrapRect = timelineTracksWrap.getBoundingClientRect();
+    const rulerRect = tlRulerStrip.getBoundingClientRect();
+    return (rulerRect.left - wrapRect.left) + timelineTracksWrap.scrollLeft;
+  }
+  return 88;
+}
+
+function updatePlayheadPosition(timeSec) {
+  if (!tlPlayhead) return;
+  const totalDur = shotPlan && shotPlan.length
+    ? shotPlan.reduce((acc, s) => acc + Number(s.duration || 0), 0)
+    : 10.0;
+  const clampedTime = Math.max(0, Math.min(totalDur, Number(timeSec || 0)));
+  const ratio = totalDur > 0 ? (clampedTime / totalDur) : 0;
+
+  const originX = getTimelineTrackOrigin();
+  const trackWidth = tlRulerStrip
+    ? (tlRulerStrip.offsetWidth || parseFloat(tlRulerStrip.style.width) || 800)
+    : 800;
+
+  const leftPx = originX + ratio * trackWidth;
+  tlPlayhead.style.left = `${leftPx}px`;
+
+  if (tlPlayheadReadout) {
+    tlPlayheadReadout.textContent = `⏱️ ${formatTimecode(clampedTime)}`;
+  }
+}
+
+function startPlayheadAnimLoop() {
+  if (playheadRafId) {
+    cancelAnimationFrame(playheadRafId);
+    playheadRafId = null;
+  }
+  function loop() {
+    if (isPlayingSequence) {
+      const curSeqTime = getCurrentSequenceTime();
+      updatePlayheadPosition(curSeqTime);
+      playheadRafId = requestAnimationFrame(loop);
+    } else {
+      playheadRafId = null;
+    }
+  }
+  playheadRafId = requestAnimationFrame(loop);
+}
+
+function stopPlayheadAnimLoop() {
+  if (playheadRafId) {
+    cancelAnimationFrame(playheadRafId);
+    playheadRafId = null;
+  }
+}
+
+function seekSequenceToTime(targetTimeSec) {
+  if (!shotPlan || !shotPlan.length) return;
+  const totalDur = shotPlan.reduce((acc, s) => acc + Number(s.duration || 0), 0) || 10.0;
+  const clampedTime = Math.max(0, Math.min(totalDur, targetTimeSec));
+
+  // 1. Move playhead indicator
+  updatePlayheadPosition(clampedTime);
+
+  // 2. Identify target shot
+  let accTime = 0;
+  let targetIdx = 0;
+  let intraShotOffset = 0;
+  for (let i = 0; i < shotPlan.length; i++) {
+    const sDur = Number(shotPlan[i].duration || 0);
+    if (clampedTime <= accTime + sDur || i === shotPlan.length - 1) {
+      targetIdx = i;
+      intraShotOffset = Math.max(0, clampedTime - accTime);
+      break;
+    }
+    accTime += sDur;
+  }
+
+  const shot = shotPlan[targetIdx];
+  if (!shot) return;
+  const inPt = Number(shot.in_point || 0);
+  const targetVideoTime = inPt + intraShotOffset;
+
+  // 3. Switch shot / video deck if different shot
+  if (targetIdx !== selectedShotIdx) {
+    selectedShotIdx = targetIdx;
+    if (tlShotsStrip) {
+      const cards = tlShotsStrip.querySelectorAll(".tl-shot-card");
+      cards.forEach((c, idx) => {
+        c.classList.toggle("selected", idx === targetIdx);
+      });
+    }
+    populateInspector();
+    previewSelectedShotInMonitor(false, false, targetVideoTime);
+  } else {
+    // Within same shot: seek active video deck directly
+    const vid = getVisibleVideoDeck();
+    if (vid) {
+      try {
+        if (Math.abs(vid.currentTime - targetVideoTime) > 0.02) {
+          vid.currentTime = targetVideoTime;
+        }
+      } catch (e) {}
+    }
+  }
+
+  // 4. Update live fade overlay
+  updateLiveFadeOverlay(targetVideoTime, shot);
+
+  // 5. Update live audio position
+  if (liveAudioPlayer) {
+    const targetAudioTime = Number(audioStartOffset || 0) + clampedTime;
+    try {
+      if (Math.abs(liveAudioPlayer.currentTime - targetAudioTime) > 0.05) {
+        liveAudioPlayer.currentTime = targetAudioTime;
+      }
+    } catch (e) {}
+  }
+
+  // 6. Update text overlays for this timecode
+  applyTimelineTextOverlayToPreview(clampedTime);
+}
+
 function getSelectedTextTrackItem() {
   if (!textTrackItems.length) return null;
   let item = textTrackItems.find((t) => t.id === selectedTextTrackId);
@@ -1450,7 +1613,7 @@ function renderTextTrack() {
   if (!textTrackItems.length) {
     tlTextStrip.innerHTML = `
       <div style="color:var(--text-dim); font-size:11px; display:flex; align-items:center; padding-left:10px; height:100%; pointer-events:none;">
-        Click ➕ Add on the left to place a text title overlay on the timeline · Drag to position or trim.
+        Double-click track or click "+ Add Text Item" in inspector to add text titles · Drag edges to trim.
       </div>
     `;
     return;
@@ -1588,6 +1751,29 @@ function renderTextTrack() {
 let textDragRafId = null;
 
 window.addEventListener("mousemove", (e) => {
+  if (isScrubbingPlayhead) {
+    e.preventDefault();
+    if (!tlRulerStrip) return;
+    const totalDur = shotPlan && shotPlan.length
+      ? shotPlan.reduce((acc, s) => acc + Number(s.duration || 0), 0)
+      : 10.0;
+    const rulerRect = tlRulerStrip.getBoundingClientRect();
+    const mouseX = e.clientX - rulerRect.left;
+    const ratio = Math.max(0, Math.min(1, mouseX / rulerRect.width));
+    seekSequenceToTime(ratio * totalDur);
+
+    // Auto-scroll timeline tracks container if dragging near edges
+    if (timelineTracksWrap) {
+      const wrapRect = timelineTracksWrap.getBoundingClientRect();
+      if (e.clientX > wrapRect.right - 30) {
+        timelineTracksWrap.scrollLeft += 15;
+      } else if (e.clientX < wrapRect.left + 30) {
+        timelineTracksWrap.scrollLeft -= 15;
+      }
+    }
+    return;
+  }
+
   if (activeTextTrim) {
     const { id, side, startX, origStart, origDur, cardEl, metaEl, totalDur, trackWidth } = activeTextTrim;
     const item = textTrackItems.find((t) => t.id === id);
@@ -1674,6 +1860,14 @@ window.addEventListener("mousemove", (e) => {
 });
 
 window.addEventListener("mouseup", () => {
+  if (isScrubbingPlayhead) {
+    isScrubbingPlayhead = false;
+    if (tlPlayhead) tlPlayhead.classList.remove("scrubbing");
+    document.body.style.userSelect = "";
+    document.body.style.cursor = "";
+    renderTimelineTrack();
+  }
+
   if (activeTextTrim) {
     const item = textTrackItems.find((t) => t.id === activeTextTrim.id);
     if (activeTextTrim.cardEl) {
@@ -1946,7 +2140,7 @@ function preloadNextShotIntoStandby(nextShotIdx) {
   }
 }
 
-function previewSelectedShotInMonitor(autoPlay = true, useDeckSwitch = false) {
+function previewSelectedShotInMonitor(autoPlay = true, useDeckSwitch = false, customSeekTime = null) {
   if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
   const shot = shotPlan[selectedShotIdx];
   const targetSrc = resolveClipSourceUrl(shot.clip);
@@ -1971,12 +2165,14 @@ function previewSelectedShotInMonitor(autoPlay = true, useDeckSwitch = false) {
   showMonitorTab("source");
   applyReframeTransformToPreview();
 
-  const seekTo = Number(shot.in_point || 0);
+  const seekTo = (customSeekTime !== null && customSeekTime !== undefined)
+    ? Number(customSeekTime)
+    : Number(shot.in_point || 0);
   activeVideo.muted = isPlayingSequence ? Boolean(aUrl && !keepOrigAudio) : false;
 
   const applySeekAndPlay = () => {
     try {
-      if (Math.abs(activeVideo.currentTime - seekTo) > 0.05) {
+      if (Math.abs(activeVideo.currentTime - seekTo) > 0.02) {
         activeVideo.currentTime = seekTo;
       }
       if (autoPlay) activeVideo.play().catch(() => {});
@@ -2268,6 +2464,7 @@ function renderTimelineTrack() {
 
   renderTimecodeRuler(cumulativeWidth, totalDur);
   renderTextTrack();
+  updatePlayheadPosition(getCurrentSequenceTime());
 
   btnMoveLeft.disabled = selectedShotIdx <= 0;
   btnMoveRight.disabled = selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length - 1;
@@ -2526,6 +2723,52 @@ if (btnAddTimelineText) {
   btnAddTimelineText.addEventListener("click", (e) => {
     e.stopPropagation();
     addNewTextTrackItem();
+  });
+}
+
+// Attach CTI Playhead and Timecode Ruler Scrubbing
+if (tlPlayheadHead) {
+  tlPlayheadHead.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    stopSequencePlayback();
+    isScrubbingPlayhead = true;
+    if (tlPlayhead) tlPlayhead.classList.add("scrubbing");
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+  });
+}
+
+if (tlRulerStrip) {
+  tlRulerStrip.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    stopSequencePlayback();
+    isScrubbingPlayhead = true;
+    if (tlPlayhead) tlPlayhead.classList.add("scrubbing");
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+
+    const totalDur = shotPlan && shotPlan.length
+      ? shotPlan.reduce((acc, s) => acc + Number(s.duration || 0), 0)
+      : 10.0;
+    const rulerRect = tlRulerStrip.getBoundingClientRect();
+    const mouseX = e.clientX - rulerRect.left;
+    const ratio = Math.max(0, Math.min(1, mouseX / rulerRect.width));
+    seekSequenceToTime(ratio * totalDur);
+  });
+}
+
+if (tlTextStrip) {
+  tlTextStrip.addEventListener("dblclick", (e) => {
+    if (e.target.closest(".tl-text-clip")) return;
+    const totalDur = shotPlan && shotPlan.length
+      ? shotPlan.reduce((acc, s) => acc + Number(s.duration || 0), 0)
+      : 10.0;
+    const rect = tlTextStrip.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const ratio = Math.max(0, Math.min(1, clickX / rect.width));
+    const startTime = Math.round(ratio * totalDur * 10) / 10;
+    addNewTextTrackItem(startTime);
   });
 }
 
