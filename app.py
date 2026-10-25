@@ -30,6 +30,8 @@ os.environ["PATH"] = f"{BASE_DIR / 'bin'}:{os.environ.get('PATH', '')}"
 
 JOBS_DIR = BASE_DIR / "jobs"
 JOBS_DIR.mkdir(exist_ok=True)
+FONTS_DIR = BASE_DIR / "custom_fonts"
+FONTS_DIR.mkdir(exist_ok=True)
 
 app = Flask(__name__)
 
@@ -951,6 +953,77 @@ def api_sort_progress():
         except:
             pass
     return jsonify({"total": 0, "current": 0, "phase": ""})
+
+
+@app.route("/api/fonts", methods=["GET"])
+def api_list_fonts():
+    """Return all uploaded custom fonts plus installed macOS fonts."""
+    custom_list = []
+    if FONTS_DIR.exists():
+        for fp in sorted(FONTS_DIR.iterdir()):
+            if fp.suffix.lower() in {".ttf", ".otf", ".ttc", ".woff", ".woff2"} and not fp.name.startswith("."):
+                family = f"Custom: {fp.stem}"
+                custom_list.append({
+                    "name": fp.stem,
+                    "family": family,
+                    "filename": fp.name,
+                    "url": f"/api/custom_font/{fp.name}",
+                })
+
+    os_dirs = [
+        Path.home() / "Library" / "Fonts",
+        Path("/Library/Fonts"),
+        Path("/System/Library/Fonts/Supplemental"),
+        Path("/System/Library/Fonts"),
+    ]
+    seen = set()
+    os_fonts = []
+    for d in os_dirs:
+        if not d.exists():
+            continue
+        try:
+            for fp in sorted(d.iterdir()):
+                if fp.suffix.lower() in {".ttf", ".otf", ".ttc"} and not fp.name.startswith("."):
+                    stem = fp.stem
+                    if stem not in seen:
+                        seen.add(stem)
+                        os_fonts.append(stem)
+        except Exception:
+            pass
+
+    return jsonify({
+        "custom_fonts": custom_list,
+        "os_fonts": sorted(os_fonts, key=lambda s: s.lower()),
+    })
+
+
+@app.route("/api/upload_font", methods=["POST"])
+def api_upload_font():
+    f = request.files.get("font_file")
+    if not f or not f.filename:
+        return jsonify({"error": "No font file selected"}), 400
+    ext = Path(f.filename).suffix.lower()
+    if ext not in {".ttf", ".otf", ".ttc", ".woff", ".woff2"}:
+        return jsonify({"error": "Unsupported font format. Use .ttf, .otf, .ttc, or .woff"}), 400
+    safe_stem = secure_filename(Path(f.filename).stem) or "CustomFont"
+    dest = FONTS_DIR / f"{safe_stem}{ext}"
+    f.save(dest)
+    family = f"Custom: {safe_stem}"
+    return jsonify({
+        "name": safe_stem,
+        "family": family,
+        "filename": dest.name,
+        "url": f"/api/custom_font/{dest.name}",
+    })
+
+
+@app.route("/api/custom_font/<filename>")
+def api_serve_custom_font(filename):
+    safe = secure_filename(filename)
+    target = FONTS_DIR / safe
+    if not target.exists():
+        return jsonify({"error": "Font not found"}), 404
+    return send_file(target)
 
 
 @app.route("/api/quit_app", methods=["POST"])

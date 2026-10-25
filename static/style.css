@@ -605,8 +605,6 @@ body.nle-body {
   font-weight: 700;
   padding: 6px 14px;
   border-radius: 999px;
-  box-shadow: 0 4px 14px rgba(15, 22, 28, 0.55);
-  border: 1px solid rgba(231, 237, 242, 0.22);
 }
 
 .text-preview-layer:hover .text-preview-badge {

@@ -80,27 +80,19 @@ def _hex_to_rgba(hex_str: str, alpha: int = 255):
         return (255, 255, 255, alpha)
 
 
-def render_text_overlay_png(text_cfg: dict, width: int, height: int, out_png: Path) -> bool:
-    """Render a transparent RGBA PNG overlay for a clip's text title using Pillow."""
-    if not text_cfg or not isinstance(text_cfg, dict):
-        return False
-    content = str(text_cfg.get("content") or "").strip()
-    if not content:
-        return False
+def _resolve_font_path(font_family: str) -> str:
+    """Resolve a font name (Custom uploaded font, macOS installed font, or preset) to a file path."""
+    base_dir = Path(__file__).parent
+    custom_dir = base_dir / "custom_fonts"
 
-    try:
-        from PIL import Image, ImageDraw, ImageFont
-    except ImportError:
-        return False
+    if font_family.startswith("Custom:"):
+        stem = font_family.replace("Custom:", "", 1).strip()
+        if custom_dir.exists():
+            for fp in custom_dir.iterdir():
+                if fp.stem.lower() == stem.lower() and fp.suffix.lower() in {".ttf", ".otf", ".ttc"}:
+                    return str(fp)
 
-    img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-
-    font_family = str(text_cfg.get("font") or "Arial Bold").strip()
-    base_size = float(text_cfg.get("size", 56))
-    font_px = max(18, int(round(base_size * (width / 1080.0))))
-
-    font_candidates = {
+    preset_map = {
         "Helvetica Bold": [
             "/System/Library/Fonts/Helvetica.ttc",
             "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
@@ -126,23 +118,70 @@ def render_text_overlay_png(text_cfg: dict, width: int, height: int, out_png: Pa
             "/System/Library/Fonts/Monaco.ttf",
         ],
     }
+    if font_family in preset_map:
+        for p in preset_map[font_family]:
+            if Path(p).exists():
+                return p
 
-    paths_to_try = font_candidates.get(font_family, []) + [
-        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
-        "/System/Library/Fonts/Helvetica.ttc",
+    search_dirs = [
+        custom_dir,
+        Path.home() / "Library" / "Fonts",
+        Path("/Library/Fonts"),
+        Path("/System/Library/Fonts/Supplemental"),
+        Path("/System/Library/Fonts"),
     ]
+    clean_query = font_family.strip().lower()
+    for d in search_dirs:
+        if not d.exists():
+            continue
+        try:
+            for fp in d.iterdir():
+                if fp.suffix.lower() in {".ttf", ".otf", ".ttc"} and fp.stem.lower() == clean_query:
+                    return str(fp)
+            for fp in d.iterdir():
+                if fp.suffix.lower() in {".ttf", ".otf", ".ttc"} and clean_query in fp.stem.lower():
+                    return str(fp)
+        except Exception:
+            pass
+
+    for fallback in ("/System/Library/Fonts/Supplemental/Arial Bold.ttf", "/System/Library/Fonts/Helvetica.ttc"):
+        if Path(fallback).exists():
+            return fallback
+    return ""
+
+
+def render_text_overlay_png(text_cfg: dict, width: int, height: int, out_png: Path) -> bool:
+    """Render a transparent RGBA PNG overlay for a clip's text title using Pillow."""
+    if not text_cfg or not isinstance(text_cfg, dict):
+        return False
+    content = str(text_cfg.get("content") or "").strip()
+    if not content:
+        return False
+
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError:
+        return False
+
+    img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    font_family = str(text_cfg.get("font") or "Arial Bold").strip()
+    base_size = float(text_cfg.get("size", 56))
+    font_px = max(18, int(round(base_size * (width / 1080.0))))
+
+    resolved_fp = _resolve_font_path(font_family)
     font_obj = None
-    for fp in paths_to_try:
-        if Path(fp).exists():
-            try:
-                font_obj = ImageFont.truetype(fp, font_px)
-                break
-            except Exception:
-                pass
+    if resolved_fp:
+        try:
+            font_obj = ImageFont.truetype(resolved_fp, font_px)
+        except Exception:
+            font_obj = None
     if font_obj is None:
         font_obj = ImageFont.load_default()
 
-    stroke_w = max(2, int(round(font_px * 0.06)))
+    bg_style = str(text_cfg.get("bg_style") or "none").strip()
+    stroke_w = max(2, int(round(font_px * 0.06))) if bg_style != "plain" else 0
     bbox = draw.multiline_textbbox((0, 0), content, font=font_obj, align="center", stroke_width=stroke_w)
     tw = bbox[2] - bbox[0]
     th = bbox[3] - bbox[1]
@@ -156,7 +195,6 @@ def render_text_overlay_png(text_cfg: dict, width: int, height: int, out_png: Pa
     x0 = max(20, min(width - tw - 20, cx - tw // 2))
     y0 = max(20, min(height - th - 20, cy - th // 2))
 
-    bg_style = str(text_cfg.get("bg_style") or "pill").strip()
     bg_color_hex = str(text_cfg.get("bg_color") or "#1F2C38").strip()
     if bg_style in ("pill", "box"):
         pad_x = max(18, int(round(font_px * 0.42)))
@@ -170,18 +208,27 @@ def render_text_overlay_png(text_cfg: dict, width: int, height: int, out_png: Pa
         draw.rounded_rectangle([rx0, ry0, rx1, ry1], radius=radius, fill=bg_rgba)
 
     text_rgba = _hex_to_rgba(str(text_cfg.get("color") or "#FFFFFF"), alpha=255)
-    outline_rgba = (15, 22, 28, 235) if bg_style == "outline" else (15, 22, 28, 160)
-    use_stroke = stroke_w if bg_style in ("outline", "none") else max(1, stroke_w // 2)
-
-    draw.multiline_text(
-        (x0, y0),
-        content,
-        font=font_obj,
-        fill=text_rgba,
-        align="center",
-        stroke_width=use_stroke,
-        stroke_fill=outline_rgba,
-    )
+    if bg_style == "plain":
+        # Pure text with zero background, zero outline, zero shadow
+        draw.multiline_text(
+            (x0, y0),
+            content,
+            font=font_obj,
+            fill=text_rgba,
+            align="center",
+        )
+    else:
+        outline_rgba = (15, 22, 28, 235) if bg_style == "outline" else (15, 22, 28, 165)
+        use_stroke = stroke_w if bg_style in ("outline", "none") else max(1, stroke_w // 2)
+        draw.multiline_text(
+            (x0, y0),
+            content,
+            font=font_obj,
+            fill=text_rgba,
+            align="center",
+            stroke_width=use_stroke,
+            stroke_fill=outline_rgba,
+        )
 
     img.save(str(out_png), "PNG")
     return True

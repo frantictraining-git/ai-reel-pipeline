@@ -6,7 +6,7 @@
 <title>Swift Reel</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=35">
+<link rel="stylesheet" href="/static/style.css?v=36">
 </head>
 <body class="nle-body">
 
@@ -611,30 +611,38 @@
                   <textarea id="txt-overlay-content" rows="2" class="tactile-input" placeholder="Type title or caption for this shot…" style="width:100%; resize:vertical; font-family:inherit;"></textarea>
                 </div>
 
-                <div style="display:grid; grid-template-columns:1.2fr 0.8fr; gap:8px; margin-bottom:8px;">
-                  <div class="inspector-field" style="margin-bottom:0;">
-                    <label><span>Font Family</span></label>
-                    <div class="tactile-select-wrap">
-                      <select id="sel-txt-font">
+                <div class="inspector-field" style="margin-bottom:8px;">
+                  <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <label><span>Font Family (OS Installed & Custom)</span></label>
+                    <input type="file" id="input-custom-font" accept=".ttf,.otf,.ttc,.woff,.woff2" hidden>
+                    <button type="button" id="btn-upload-font" class="btn btn-secondary btn-sm" style="padding:2px 7px; font-size:10px;" title="Upload a custom .ttf, .otf, or .woff font file">➕ Add Custom Font</button>
+                  </div>
+                  <div class="tactile-select-wrap">
+                    <select id="sel-txt-font">
+                      <optgroup label="Featured Presets" id="optgrp-preset-fonts">
                         <option value="Arial Bold" selected>Arial Bold</option>
                         <option value="Helvetica Bold">Helvetica Bold</option>
                         <option value="Impact">Impact (Reels)</option>
                         <option value="Futura">Futura</option>
                         <option value="Georgia">Georgia Serif</option>
                         <option value="Courier New">Courier Mono</option>
-                      </select>
-                    </div>
+                      </optgroup>
+                      <optgroup label="Uploaded Custom Fonts" id="optgrp-custom-fonts"></optgroup>
+                      <optgroup label="macOS Installed Fonts" id="optgrp-os-fonts"></optgroup>
+                    </select>
                   </div>
-                  <div class="inspector-field" style="margin-bottom:0;">
-                    <label><span>Style</span></label>
-                    <div class="tactile-select-wrap">
-                      <select id="sel-txt-bg-style">
-                        <option value="pill" selected>Rounded Pill</option>
-                        <option value="box">Solid Box</option>
-                        <option value="outline">Outline Only</option>
-                        <option value="none">Clean Shadow</option>
-                      </select>
-                    </div>
+                </div>
+
+                <div class="inspector-field" style="margin-bottom:8px;">
+                  <label><span>Background / Style</span></label>
+                  <div class="tactile-select-wrap">
+                    <select id="sel-txt-bg-style">
+                      <option value="plain" selected>No Background (Clean Text Only)</option>
+                      <option value="none">No Background + Soft Drop Shadow</option>
+                      <option value="outline">No Background + Crisp Outline</option>
+                      <option value="pill">Rounded Pill Background</option>
+                      <option value="box">Solid Box Background</option>
+                    </select>
                   </div>
                 </div>
 
@@ -998,6 +1006,6 @@
     </div>
   </div>
 
-<script src="/static/app.js?v=35"></script>
+<script src="/static/app.js?v=36"></script>
 </body>
 </html>

@@ -75,7 +75,7 @@ function defaultTextOverlay() {
     font: "Arial Bold",
     size: 56,
     color: "#FFFFFF",
-    bg_style: "pill",
+    bg_style: "plain",
     bg_color: "#1F2C38",
     x: 50,
     y: 82,
@@ -891,6 +891,10 @@ const textPreviewLayer = $("text-preview-layer");
 const textPreviewBadge = $("text-preview-badge");
 const txtOverlayContent = $("txt-overlay-content");
 const selTxtFont = $("sel-txt-font");
+const optgrpCustomFonts = $("optgrp-custom-fonts");
+const optgrpOsFonts = $("optgrp-os-fonts");
+const inputCustomFont = $("input-custom-font");
+const btnUploadFont = $("btn-upload-font");
 const selTxtBgStyle = $("sel-txt-bg-style");
 const slTxtSize = $("sl-txt-size");
 const valTxtSize = $("val-txt-size");
@@ -900,6 +904,86 @@ const txtPosReadout = $("txt-pos-readout");
 const btnTxtAll = $("btn-txt-all");
 const btnTxtClear = $("btn-txt-clear");
 const btnTxtMasterClear = $("btn-txt-master-clear");
+const loadedCustomFontFaces = new Set();
+
+async function registerCustomFontFace(family, url) {
+  if (!family || !url || loadedCustomFontFaces.has(family)) return;
+  try {
+    const cssName = family.replace(/^Custom:\s*/i, "").trim();
+    const ff = new FontFace(cssName, `url(${url})`);
+    const loaded = await ff.load();
+    document.fonts.add(loaded);
+    loadedCustomFontFaces.add(family);
+  } catch (e) {}
+}
+
+async function loadAvailableFonts(selectFontFamily = null) {
+  try {
+    const res = await fetch("/api/fonts");
+    if (!res.ok) return;
+    const data = await res.json();
+
+    if (optgrpCustomFonts) {
+      optgrpCustomFonts.innerHTML = "";
+      (data.custom_fonts || []).forEach((cf) => {
+        registerCustomFontFace(cf.family, cf.url);
+        const opt = document.createElement("option");
+        opt.value = cf.family;
+        opt.textContent = `★ ${cf.name}`;
+        optgrpCustomFonts.appendChild(opt);
+      });
+    }
+
+    if (optgrpOsFonts) {
+      optgrpOsFonts.innerHTML = "";
+      (data.os_fonts || []).forEach((fname) => {
+        const opt = document.createElement("option");
+        opt.value = fname;
+        opt.textContent = fname;
+        optgrpOsFonts.appendChild(opt);
+      });
+    }
+
+    if (selectFontFamily && selTxtFont) {
+      selTxtFont.value = selectFontFamily;
+    } else if (selectedShotIdx >= 0 && selectedShotIdx < shotPlan.length && selTxtFont) {
+      const t = ensureShotText(shotPlan[selectedShotIdx]);
+      if (t.font) selTxtFont.value = t.font;
+    }
+  } catch (e) {}
+}
+
+if (btnUploadFont && inputCustomFont) {
+  btnUploadFont.addEventListener("click", () => inputCustomFont.click());
+  inputCustomFont.addEventListener("change", async () => {
+    const file = inputCustomFont.files[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append("font_file", file);
+    btnUploadFont.textContent = "Uploading…";
+    try {
+      const res = await fetch("/api/upload_font", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Font upload failed");
+      await registerCustomFontFace(data.family, data.url);
+      await loadAvailableFonts(data.family);
+      if (selectedShotIdx >= 0 && selectedShotIdx < shotPlan.length) {
+        pushUndoState();
+        const t = ensureShotText(shotPlan[selectedShotIdx]);
+        t.font = data.family;
+        if (selTxtFont) selTxtFont.value = data.family;
+        applyTextOverlayToPreview();
+        markTimelineDirty();
+      }
+      setStatus(buildStatus, `🔤 Loaded custom font "${data.name}"!`, "success");
+    } catch (err) {
+      alert("Error loading font: " + err.message);
+    } finally {
+      btnUploadFont.textContent = "➕ Add Custom Font";
+      inputCustomFont.value = "";
+    }
+  });
+}
 
 const inspClipSelect = $("insp-clip-select");
 const inspInpointSlider = $("insp-inpoint-slider");
@@ -1088,32 +1172,45 @@ function applyTextOverlayToPreview() {
   const scaleRatio = vpW / (projectWidth || 1080);
   const pxSize = Math.max(11, Math.round(Number(t.size || 56) * scaleRatio));
 
-  textPreviewBadge.style.fontFamily = `"${t.font || "Arial Bold"}", sans-serif`;
+  const rawFont = t.font || "Arial Bold";
+  const cssFontName = rawFont.replace(/^Custom:\s*/i, "").trim();
+  const cleanOsFontName = cssFontName.replace(/\s+(Bold|Italic|Regular|Medium|Light|Black|Heavy)$/i, "").trim();
+  textPreviewBadge.style.fontFamily = `"${cssFontName}", "${cleanOsFontName}", sans-serif`;
   textPreviewBadge.style.fontSize = `${pxSize}px`;
   textPreviewBadge.style.color = t.color || "#FFFFFF";
 
-  const bgStyle = t.bg_style || "pill";
+  const bgStyle = t.bg_style || "plain";
   const bgCol = t.bg_color || "#1F2C38";
   if (bgStyle === "pill") {
     textPreviewBadge.style.background = bgCol;
     textPreviewBadge.style.borderRadius = "999px";
     textPreviewBadge.style.padding = `${Math.max(4, Math.round(pxSize * 0.25))}px ${Math.max(10, Math.round(pxSize * 0.48))}px`;
     textPreviewBadge.style.border = "1px solid rgba(231,237,242,0.22)";
+    textPreviewBadge.style.boxShadow = "0 4px 14px rgba(15, 22, 28, 0.55)";
     textPreviewBadge.style.textShadow = "0 1px 2px rgba(15,22,28,0.6)";
   } else if (bgStyle === "box") {
     textPreviewBadge.style.background = bgCol;
     textPreviewBadge.style.borderRadius = "6px";
     textPreviewBadge.style.padding = `${Math.max(4, Math.round(pxSize * 0.25))}px ${Math.max(10, Math.round(pxSize * 0.45))}px`;
     textPreviewBadge.style.border = "1px solid rgba(231,237,242,0.22)";
+    textPreviewBadge.style.boxShadow = "0 4px 14px rgba(15, 22, 28, 0.55)";
     textPreviewBadge.style.textShadow = "0 1px 2px rgba(15,22,28,0.6)";
   } else if (bgStyle === "outline") {
     textPreviewBadge.style.background = "transparent";
     textPreviewBadge.style.border = "none";
+    textPreviewBadge.style.boxShadow = "none";
     textPreviewBadge.style.padding = "2px 4px";
     textPreviewBadge.style.textShadow = "-1.5px -1.5px 0 #0F161C, 1.5px -1.5px 0 #0F161C, -1.5px 1.5px 0 #0F161C, 1.5px 1.5px 0 #0F161C, 0 3px 8px rgba(15,22,28,0.85)";
+  } else if (bgStyle === "plain") {
+    textPreviewBadge.style.background = "transparent";
+    textPreviewBadge.style.border = "none";
+    textPreviewBadge.style.boxShadow = "none";
+    textPreviewBadge.style.padding = "2px 4px";
+    textPreviewBadge.style.textShadow = "none";
   } else {
     textPreviewBadge.style.background = "transparent";
     textPreviewBadge.style.border = "none";
+    textPreviewBadge.style.boxShadow = "none";
     textPreviewBadge.style.padding = "2px 4px";
     textPreviewBadge.style.textShadow = "0 2px 10px rgba(15,22,28,0.95)";
   }
@@ -1764,7 +1861,7 @@ function populateTextControls(shot) {
     txtOverlayContent.value = t.content || "";
   }
   if (selTxtFont) selTxtFont.value = t.font || "Arial Bold";
-  if (selTxtBgStyle) selTxtBgStyle.value = t.bg_style || "pill";
+  if (selTxtBgStyle) selTxtBgStyle.value = t.bg_style || "plain";
   if (slTxtSize) slTxtSize.value = t.size || 56;
   if (valTxtSize) valTxtSize.textContent = `${t.size || 56}px`;
   if (colTxtColor) colTxtColor.value = t.color || "#FFFFFF";
@@ -3243,6 +3340,7 @@ window.addEventListener("keydown", (e) => {
 // ---------- Auto-Load Latest Built Job on Startup ----------
 window.addEventListener("DOMContentLoaded", async () => {
   updateProjectSettingsUI();
+  loadAvailableFonts();
   try {
     const res = await fetch("/api/job_state/ede3406fe924");
     if (!res.ok) return;
