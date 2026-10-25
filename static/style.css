@@ -1696,9 +1696,14 @@ input[type="range"]::-webkit-slider-thumb:active {
   background: linear-gradient(180deg, #6d589e 0%, #4f3d79 100%);
 }
 
-.tl-text-clip.dragging {
-  opacity: 0.92;
+.tl-text-clip.dragging,
+.tl-text-clip.trimming {
+  opacity: 0.94;
   box-shadow: 0 4px 16px rgba(56, 189, 248, 0.5);
+  transition: none !important;
+}
+
+.tl-text-clip.dragging {
   cursor: grabbing !important;
 }
 
