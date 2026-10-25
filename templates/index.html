@@ -234,9 +234,9 @@
 
     <nav class="tab-nav" id="main-tab-nav">
       <button type="button" class="tab-link active" data-tab="beatsync">Beat Sync Editor</button>
+      <button type="button" class="tab-link" data-tab="history">Projects</button>
       <button type="button" class="tab-link" data-tab="cleaner">Speech Cleaner</button>
       <button type="button" class="tab-link" data-tab="sorter">Media Sorter</button>
-      <button type="button" class="tab-link" data-tab="history">Job History</button>
     </nav>
 
     <div class="nle-top-actions">
@@ -613,6 +613,17 @@
                 <div class="txt-items-strip" id="txt-items-strip"></div>
 
                 <div id="txt-selected-editor" style="margin-top:8px;">
+                  <div class="txt-timing-panel" id="txt-timing-panel" style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px; background:rgba(31,44,56,0.6); padding:6px 8px; border-radius:4px; border:1px solid var(--border-dark);">
+                    <div>
+                      <label style="font-size:10px; color:var(--text-dim); display:block; margin-bottom:2px;">In-Point (sec)</label>
+                      <input type="number" id="num-txt-start" class="tactile-input mono" step="0.1" min="0" value="0.0" style="width:100%; height:26px; font-size:11px;">
+                    </div>
+                    <div>
+                      <label style="font-size:10px; color:var(--text-dim); display:block; margin-bottom:2px;">Duration (sec)</label>
+                      <input type="number" id="num-txt-dur" class="tactile-input mono" step="0.1" min="0.2" value="2.5" style="width:100%; height:26px; font-size:11px;">
+                    </div>
+                  </div>
+
                   <div class="inspector-field">
                     <label>
                       <span>Text Content (Supports Multi-Line)</span>
@@ -823,6 +834,19 @@
           <div class="tl-ruler-strip" id="tl-ruler-strip"></div>
         </div>
 
+        <!-- T1 Text Track (CapCut/Premiere Style Drag-to-Trim & Position) -->
+        <div class="tl-track-row text-row">
+          <div class="tl-track-label text-label" style="display:flex; flex-direction:column; justify-content:center; align-items:center; gap:2px;">
+            <span>T1 · TEXT</span>
+            <button type="button" id="btn-add-timeline-text" class="btn btn-secondary btn-xs" style="padding:1px 6px; font-size:9.5px; border-radius:3px;" title="Add new text title overlay to timeline">➕ Add</button>
+          </div>
+          <div class="tl-text-strip" id="tl-text-strip" title="Double-click empty area to add text · Drag handles [ ] to trim timing · Drag card to move">
+            <div style="color:var(--text-dim); font-size:11px; display:flex; align-items:center; padding-left:8px; height:100%;">
+              Click ➕ Add to place text titles across the timeline.
+            </div>
+          </div>
+        </div>
+
         <!-- V1 Video Track -->
         <div class="tl-track-row">
           <div class="tl-track-label">V1 · VIDEO</div>
@@ -984,41 +1008,34 @@
   </div>
 
   <!-- ================================================================= -->
-  <!-- TAB 4: JOB HISTORY                                                -->
+  <!-- TAB 4: CAPCUT-STYLE PROJECTS / JOB MANAGER                        -->
   <!-- ================================================================= -->
-  <div class="tab-view scrollable-tab hidden" id="tab-view-history">
-    <div class="wrap">
-      <section class="step">
-        <div class="step-head">
-          <span class="step-num">🕒</span>
-          <div>
-            <h2>Job History & Storage</h2>
-            <p class="step-desc">Access previous builds, timelines, and manage disk usage.</p>
-          </div>
-        </div>
+  <div class="tab-view scrollable-tab hidden" id="tab-view-history" style="padding: 24px 32px;">
+    <!-- Top Projects Bar -->
+    <div class="projects-header">
+      <div class="projects-title-wrap">
+        <h1 class="projects-title">Projects</h1>
+        <span class="projects-count-badge" id="proj-count-badge">0 projects</span>
+      </div>
 
-        <div class="stat-grid" style="margin-bottom:16px;">
-          <div class="stat-box">
-            <span class="stat-val" id="hist-total-jobs">0</span>
-            <span class="stat-label">Total Jobs</span>
-          </div>
-          <div class="stat-box">
-            <span class="stat-val" id="hist-total-size">0 Bytes</span>
-            <span class="stat-label">Disk Used</span>
-          </div>
-          <div class="stat-box">
-            <span class="stat-val" id="hist-disk-free">Loading...</span>
-            <span class="stat-label">Available</span>
-          </div>
-        </div>
+      <div class="projects-search-wrap">
+        <span class="projects-search-icon">🔍</span>
+        <input type="text" id="proj-search-input" class="projects-search-input" placeholder="Search projects by name or ID...">
+      </div>
 
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-          <label class="checkbox"><input type="checkbox" id="hist-select-all"> Select All</label>
-          <button id="btn-hist-delete" class="btn btn-danger btn-sm" disabled>🗑️ Delete Selected</button>
+      <div class="projects-actions">
+        <button type="button" id="btn-proj-new" class="btn btn-primary btn-sm">➕ New Project</button>
+        <button type="button" id="btn-proj-open-file" class="btn btn-secondary btn-sm" title="Open .reelproj file">📂 Open File</button>
+        <button type="button" id="btn-proj-batch-delete" class="btn btn-danger btn-sm hidden">🗑️ Delete Selected (<span id="proj-del-count">0</span>)</button>
+        <div class="projects-storage-pill">
+          <span id="hist-total-size">0 MB</span> used · <span id="hist-disk-free">Loading...</span> free
         </div>
+      </div>
+    </div>
 
-        <div id="hist-job-list"></div>
-      </section>
+    <!-- Projects Grid (CapCut Style Board with Thumbnails, Hover Tools & Quick Open) -->
+    <div class="projects-grid" id="projects-grid">
+      <!-- Populated dynamically via renderProjectsGrid() -->
     </div>
   </div>
 

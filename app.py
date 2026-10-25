@@ -275,6 +275,14 @@ def api_build():
         except json.JSONDecodeError:
             pass
 
+    text_track = None
+    text_track_raw = request.form.get("text_track")
+    if text_track_raw:
+        try:
+            text_track = json.loads(text_track_raw)
+        except json.JSONDecodeError:
+            pass
+
     crop_mode = request.form.get("crop_mode", "center")
     audio_in = float(request.form.get("audio_in", 0.0))
     audio_duration = float(request.form.get("audio_duration", 0.0))
@@ -332,6 +340,7 @@ def api_build():
             audio_duration=audio_duration,
             audio_volume=audio_volume,
             hdr_output=hdr_output,
+            text_track=text_track,
         )
     except Exception as e:
         return jsonify({"error": f"Build failed: {e}"}), 500
@@ -362,6 +371,7 @@ def api_job_state(job_id):
     job_name = meta.get("job_name") or meta.get("filename") or job_id
     rhythm = json.loads((jdir / "rhythm.json").read_text()) if (jdir / "rhythm.json").exists() else None
     shot_plan = json.loads((jdir / "shot_plan.json").read_text()) if (jdir / "shot_plan.json").exists() else []
+    text_track = json.loads((jdir / "text_track.json").read_text()) if (jdir / "text_track.json").exists() else []
     built_exists = (jdir / "built_reel.mp4").exists()
     local_folder = (jdir / "clips_folder.txt").read_text().strip() if (jdir / "clips_folder.txt").exists() else None
     folder_missing = bool(local_folder and not Path(local_folder).is_dir())
@@ -397,6 +407,7 @@ def api_job_state(job_id):
         "settings": meta.get("settings", {"width": 1080, "height": 1920, "fps": 30}),
         "rhythm": rhythm,
         "shot_plan": shot_plan,
+        "text_track": text_track,
         "built_exists": built_exists,
         "video_url": f"/api/media/{job_id}/built_reel.mp4" if built_exists else None,
         "reference_url": reference_url,
@@ -469,6 +480,14 @@ def api_project_save():
     else:
         shot_plan = []
 
+    text_track = data.get("text_track")
+    if text_track is not None:
+        (jdir / "text_track.json").write_text(json.dumps(text_track, indent=2))
+    elif (jdir / "text_track.json").exists():
+        text_track = json.loads((jdir / "text_track.json").read_text())
+    else:
+        text_track = []
+
     local_folder = data.get("local_folder")
     if local_folder:
         (jdir / "clips_folder.txt").write_text(str(local_folder).strip())
@@ -487,6 +506,7 @@ def api_project_save():
         "local_folder": local_folder,
         "rhythm": rhythm,
         "shot_plan": shot_plan,
+        "text_track": text_track,
         "clip_tags": clip_tags,
     }
     proj_file = jdir / "project.reelproj"
@@ -542,6 +562,8 @@ def api_project_open():
         (jdir / "rhythm.json").write_text(json.dumps(payload["rhythm"], indent=2))
     if payload.get("shot_plan") is not None:
         (jdir / "shot_plan.json").write_text(json.dumps(payload["shot_plan"], indent=2))
+    if payload.get("text_track") is not None:
+        (jdir / "text_track.json").write_text(json.dumps(payload["text_track"], indent=2))
     if payload.get("clip_tags"):
         (jdir / "clip_tags.json").write_text(json.dumps(payload["clip_tags"], indent=2))
     if payload.get("local_folder"):
@@ -840,6 +862,69 @@ def api_clean():
     })
 
 
+@app.route("/api/job_thumb/<job_id>")
+def api_job_thumb(job_id):
+    if "/" in job_id or "\\" in job_id or ".." in job_id:
+        return "Invalid job ID", 400
+    jdir = JOBS_DIR / job_id
+    if not jdir.is_dir():
+        return "Not found", 404
+
+    thumb_path = jdir / "thumb.jpg"
+    if thumb_path.exists():
+        return send_file(thumb_path, mimetype="image/jpeg")
+
+    vid_candidate = None
+    if (jdir / "built_reel.mp4").exists():
+        vid_candidate = jdir / "built_reel.mp4"
+    else:
+        ref_files = [p for p in jdir.glob("reference.*") if p.suffix.lower() in {".mp4", ".mov", ".m4v", ".webm"}]
+        if ref_files:
+            vid_candidate = ref_files[0]
+        else:
+            mp4s = [p for p in jdir.glob("*.mp4") if not p.name.startswith(".")]
+            if mp4s:
+                vid_candidate = mp4s[0]
+            elif (jdir / "source_clips").is_dir():
+                clips = [p for p in (jdir / "source_clips").iterdir() if p.suffix.lower() in {".mp4", ".mov", ".m4v"} and not p.name.startswith(".")]
+                if clips:
+                    vid_candidate = clips[0]
+
+    if vid_candidate and vid_candidate.exists():
+        try:
+            import imageio_ffmpeg
+            ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+            cmd = [
+                ffmpeg_exe,
+                "-y",
+                "-ss", "0.8",
+                "-i", str(vid_candidate),
+                "-vframes", "1",
+                "-vf", "scale=480:270:force_original_aspect_ratio=increase,crop=480:270",
+                "-q:v", "3",
+                str(thumb_path)
+            ]
+            subprocess.run(cmd, capture_output=True, check=True)
+            if thumb_path.exists():
+                return send_file(thumb_path, mimetype="image/jpeg")
+        except Exception:
+            pass
+
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="480" height="270" viewBox="0 0 480 270">
+      <defs>
+        <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#1F2C38"/>
+          <stop offset="100%" stop-color="#33475A"/>
+        </linearGradient>
+      </defs>
+      <rect width="480" height="270" fill="url(#bg)"/>
+      <circle cx="240" cy="115" r="34" fill="#4E6A83" opacity="0.6"/>
+      <polygon points="232,101 258,115 232,129" fill="#E7EDF2"/>
+      <text x="240" y="180" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="14" fill="#B7C6D3" font-weight="600" text-anchor="middle">{job_id}</text>
+    </svg>'''
+    return svg, 200, {"Content-Type": "image/svg+xml"}
+
+
 @app.route("/history")
 def history():
     return render_template("history.html")
@@ -853,26 +938,60 @@ def list_jobs():
     
     # Sort folders by modification time (newest first)
     for jdir in sorted(JOBS_DIR.iterdir(), key=os.path.getmtime, reverse=True):
-        if not jdir.is_dir(): continue
+        if not jdir.is_dir() or jdir.name.startswith(".") or jdir.name.startswith("_"):
+            continue
         
         meta_path = jdir / "meta.json"
+        meta = {}
         if meta_path.exists():
             try:
                 meta = json.loads(meta_path.read_text())
             except:
-                meta = {"job_id": jdir.name, "filename": "Unknown File", "timestamp": datetime.fromtimestamp(jdir.stat().st_mtime).isoformat()}
-        else:
-            meta = {"job_id": jdir.name, "filename": "Unknown File (Old)", "timestamp": datetime.fromtimestamp(jdir.stat().st_mtime).isoformat()}
+                pass
+        
+        job_id = meta.get("job_id") or jdir.name
+        job_name = meta.get("job_name") or meta.get("filename") or job_id
+        timestamp = meta.get("timestamp") or datetime.fromtimestamp(jdir.stat().st_mtime).isoformat()
         
         # Calculate total size of the job folder
         total_size = sum(f.stat().st_size for f in jdir.rglob('*') if f.is_file())
-        meta["size_bytes"] = total_size
+        
+        # Calculate duration & shots
+        dur_sec = 0.0
+        shot_count = 0
+        if (jdir / "shot_plan.json").exists():
+            try:
+                plan = json.loads((jdir / "shot_plan.json").read_text())
+                dur_sec = sum(float(s.get("duration", 0)) for s in plan)
+                shot_count = len(plan)
+            except:
+                pass
+        elif (jdir / "rhythm.json").exists():
+            try:
+                rhythm = json.loads((jdir / "rhythm.json").read_text())
+                dur_sec = float(rhythm.get("duration", 0))
+                shot_count = len(rhythm.get("shots", []))
+            except:
+                pass
 
-        # Find the video file
-        mp4_files = list(jdir.glob("*.mp4"))
-        meta["video_file"] = mp4_files[0].name if mp4_files else "cleaned.mp4"
+        mins = int(dur_sec // 60)
+        secs = int(dur_sec % 60)
+        formatted_dur = f"{mins:02d}:{secs:02d}"
 
-        jobs_data.append(meta)
+        status = "Rendered" if (jdir / "built_reel.mp4").exists() else ("Ready" if (jdir / "shot_plan.json").exists() else "Draft")
+
+        jobs_data.append({
+            "job_id": job_id,
+            "job_name": job_name,
+            "timestamp": timestamp,
+            "size_bytes": total_size,
+            "duration": dur_sec,
+            "formatted_duration": formatted_dur,
+            "shot_count": shot_count,
+            "status": status,
+            "thumb_url": f"/api/job_thumb/{job_id}",
+            "has_built_video": (jdir / "built_reel.mp4").exists(),
+        })
     
     import shutil
     disk_free = shutil.disk_usage("/").free
@@ -899,6 +1018,8 @@ def delete_jobs():
     for jid in job_ids:
         # Prevent path traversal security issues
         if "/" in jid or "\\" in jid or ".." in jid:
+            continue
+        if jid == "bfdaa1055f29":
             continue
         jdir = JOBS_DIR / jid
         if jdir.exists() and jdir.is_dir():

@@ -338,6 +338,7 @@ def build(
     audio_duration: float = 0.0,
     audio_volume: float = 1.0,
     hdr_output: bool = False,
+    text_track: list = None,
 ):
     rhythm = json.loads(Path(rhythm_path).read_text())
     shots = rhythm["shots"]
@@ -572,7 +573,9 @@ def build(
 
         txt_png = tmpdir / f"txt_{i:03d}.png"
         raw_texts = item.get("texts") or item.get("text") or []
-        has_txt_png = render_text_overlay_png(raw_texts, width, height, txt_png)
+        has_txt_png = False
+        if not text_track and raw_texts:
+            has_txt_png = render_text_overlay_png(raw_texts, width, height, txt_png)
 
         if has_txt_png:
             cmd = [
@@ -745,6 +748,74 @@ def build(
             ]
         subprocess.run(mix_cmd, check=True)
         shutil.move(str(mixed_out), str(output))
+
+    # Timeline Text Track Compositing (Independent from clip cuts, spans across clips)
+    if text_track and isinstance(text_track, list):
+        valid_text_items = [
+            t for t in text_track
+            if isinstance(t, dict) and str(t.get("content") or "").strip() and float(t.get("duration", 0)) > 0.05
+        ]
+        if valid_text_items:
+            write_progress(progress_file, len(active_shots), len(active_shots), "Baking timeline text titles...")
+            txt_inputs = []
+            filter_chains = []
+            last_v = "0:v"
+
+            for idx, titem in enumerate(valid_text_items):
+                t_png = tmpdir / f"txt_timeline_{idx:03d}.png"
+                render_text_overlay_png(titem, width, height, t_png)
+                txt_inputs.extend(["-i", str(t_png)])
+
+                t_start = max(0.0, float(titem.get("start_time", 0.0)))
+                t_dur = max(0.1, float(titem.get("duration", 2.0)))
+                t_end = t_start + t_dur
+                next_v = f"v_txt_{idx}" if idx < len(valid_text_items) - 1 else "v_txt_out"
+                input_idx = idx + 1
+                filter_chains.append(
+                    f"[{last_v}][{input_idx}:v]overlay=0:0:enable='between(t,{t_start:.3f},{t_end:.3f})'[{next_v}]"
+                )
+                last_v = next_v
+
+            filter_complex_str = ";".join(filter_chains)
+            text_out = Path(output).with_name("text_out.mp4")
+
+            text_bake_cmd = [
+                FFMPEG,
+                "-y",
+                "-i",
+                str(output),
+                *txt_inputs,
+                "-filter_complex",
+                filter_complex_str,
+                "-map",
+                f"[{last_v}]",
+                "-map",
+                "0:a?",
+                "-c:v",
+                "libx264" if not hdr_output else "libx265",
+                "-crf",
+                "18",
+                "-preset",
+                "veryfast",
+                "-c:a",
+                "copy",
+                "-loglevel",
+                "error",
+                str(text_out),
+            ]
+            if hdr_output:
+                text_bake_cmd.extend([
+                    "-pix_fmt", "yuv420p10le",
+                    "-color_primaries", "bt2020",
+                    "-color_trc", "arib-std-b67",
+                    "-colorspace", "bt2020nc",
+                ])
+            subprocess.run(text_bake_cmd, check=True)
+            shutil.move(str(text_out), str(output))
+
+    # Save text_track.json alongside shot_plan.json
+    text_track_out = Path(output).with_name("text_track.json")
+    text_track_out.write_text(json.dumps(text_track or [], indent=2))
 
     with open(edl_path, "w") as f:
         f.write(edl_content)

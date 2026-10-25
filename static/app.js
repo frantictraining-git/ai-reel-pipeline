@@ -952,6 +952,16 @@ const inspPaneTrim = $("insp-pane-trim");
 const inspPaneColor = $("insp-pane-color");
 const inspPaneText = $("insp-pane-text");
 
+// Timeline Text Track DOM (CapCut Style T1 Text Track)
+const tlTextStrip = $("tl-text-strip");
+const btnAddTimelineText = $("btn-add-timeline-text");
+const numTxtStart = $("num-txt-start");
+const numTxtDur = $("num-txt-dur");
+let textTrackItems = [];
+let selectedTextTrackId = null;
+let activeTextTrim = null; // { id, side: 'left'|'right', startX, origStart, origDur, cardEl, metaEl, totalDur, trackWidth }
+let activeTextMove = null; // { id, startX, origStart, dur, cardEl, metaEl, totalDur, trackWidth }
+
 // Text & Title Overlay DOM (Multiple Text Layers Supported)
 const textPreviewContainer = $("text-preview-container");
 const txtItemsStrip = $("txt-items-strip");
@@ -1108,6 +1118,8 @@ function captureEditorState() {
     audioStartOffset,
     audioDurationSec,
     audioVolumePct,
+    textTrackItems,
+    selectedTextTrackId,
   });
 }
 
@@ -1142,12 +1154,16 @@ function applySnapshotState(snapStr) {
     audioStartOffset = Number(parsed.audioStartOffset || 0);
     audioDurationSec = Number(parsed.audioDurationSec || 0);
     audioVolumePct = Number(parsed.audioVolumePct !== undefined ? parsed.audioVolumePct : 100);
+    textTrackItems = parsed.textTrackItems || [];
+    selectedTextTrackId = parsed.selectedTextTrackId || null;
     if (tlAudioVol) tlAudioVol.value = audioVolumePct;
     if (tlAudioVolLabel) tlAudioVolLabel.textContent = `${audioVolumePct}%`;
     updateAudioTrackReadout();
     renderTimelineTrack();
+    renderTextTrack();
     populateInspector();
     if (selectedShotIdx >= 0) previewSelectedShotInMonitor(false);
+    applyTimelineTextOverlayToPreview();
     markTimelineDirty();
   } catch (e) {}
 }
@@ -1227,30 +1243,62 @@ function applyGradeFilterToPreview() {
   }
 }
 
-function applyTextOverlayToPreview() {
+function getCurrentSequenceTime() {
+  if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return 0;
+  let offset = 0;
+  for (let i = 0; i < selectedShotIdx; i++) {
+    offset += Number(shotPlan[i].duration || 0);
+  }
+  const vid = getVisibleVideoDeck();
+  const inPt = Number(shotPlan[selectedShotIdx].in_point || 0);
+  const cur = vid ? Math.max(inPt, vid.currentTime) : inPt;
+  return Math.max(0, offset + (cur - inPt));
+}
+
+function getSelectedTextTrackItem() {
+  if (!textTrackItems.length) return null;
+  let item = textTrackItems.find((t) => t.id === selectedTextTrackId);
+  if (!item) {
+    item = textTrackItems[0];
+    selectedTextTrackId = item.id;
+  }
+  return item;
+}
+
+function applyTimelineTextOverlayToPreview(currentTime = null) {
   if (!textPreviewContainer) return;
   textPreviewContainer.innerHTML = "";
-  if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+  if (!textTrackItems || !textTrackItems.length) return;
 
-  const shot = shotPlan[selectedShotIdx];
-  const texts = ensureShotTexts(shot);
-  if (!texts.length) return;
+  let viewTime = currentTime;
+  if (viewTime === null || viewTime === undefined) {
+    viewTime = getCurrentSequenceTime();
+  }
 
   const vpRect = reframeViewport ? reframeViewport.getBoundingClientRect() : null;
   const vpW = vpRect && vpRect.width ? vpRect.width : 280;
   const scaleRatio = vpW / (projectWidth || 1080);
 
-  texts.forEach((t, tIdx) => {
+  const activeItems = textTrackItems.filter((t) => {
     const raw = (t.content || "").trim();
-    if (!raw) return;
+    if (!raw) return false;
+    const tStart = Number(t.start_time || 0);
+    const tEnd = tStart + Math.max(0.1, Number(t.duration || 1.0));
+    const inRange = viewTime >= tStart - 0.05 && viewTime <= tEnd + 0.05;
+    if (inRange) return true;
+    if (!isPlayingSequence && t.id === selectedTextTrackId) return true;
+    return false;
+  });
 
+  activeItems.forEach((t) => {
     const badgeWrap = document.createElement("div");
-    badgeWrap.className = "text-preview-layer" + (tIdx === activeTextItemIdx ? " selected-text-item" : "");
-    badgeWrap.dataset.tidx = String(tIdx);
+    const isSelected = t.id === selectedTextTrackId;
+    badgeWrap.className = "text-preview-layer" + (isSelected ? " selected-text-item" : "");
+    badgeWrap.dataset.tid = t.id;
 
     const badge = document.createElement("span");
     badge.className = "text-preview-badge";
-    badge.textContent = raw;
+    badge.textContent = t.content;
 
     const pxSize = Math.max(11, Math.round(Number(t.size || 56) * scaleRatio));
     const rawFont = t.font || "Arial Bold";
@@ -1309,11 +1357,7 @@ function applyTextOverlayToPreview() {
       e.stopPropagation();
       e.preventDefault();
       pushUndoState();
-      activeTextItemIdx = tIdx;
-      switchInspectorSubtab("text");
-      populateTextControls(shot);
-      renderTextItemPills(shot);
-      applyTextOverlayToPreview();
+      selectTextTrackItem(t.id);
 
       isDraggingText = true;
       dragStartX = e.clientX;
@@ -1326,24 +1370,26 @@ function applyTextOverlayToPreview() {
   });
 }
 
-function renderTextItemPills(shot) {
+function applyTextOverlayToPreview() {
+  applyTimelineTextOverlayToPreview();
+}
+
+function renderTextItemPills() {
   if (!txtItemsStrip) return;
   txtItemsStrip.innerHTML = "";
-  const texts = ensureShotTexts(shot);
 
-  if (!texts.length) {
-    txtItemsStrip.innerHTML = '<span style="font-size:11px; color:var(--text-dim); padding:2px 4px;">No text layers on this clip yet. Click ➕ Add Text above.</span>';
+  if (!textTrackItems.length) {
+    txtItemsStrip.innerHTML = '<span style="font-size:11px; color:var(--text-dim); padding:2px 4px;">No text layers on the timeline. Click ➕ Add Text above.</span>';
     if (txtSelectedEditor) txtSelectedEditor.classList.add("hidden");
     return;
   }
 
   if (txtSelectedEditor) txtSelectedEditor.classList.remove("hidden");
-  if (activeTextItemIdx < 0 || activeTextItemIdx >= texts.length) activeTextItemIdx = 0;
 
-  texts.forEach((t, i) => {
+  textTrackItems.forEach((t, i) => {
     const pill = document.createElement("div");
-    pill.className = "txt-item-pill" + (i === activeTextItemIdx ? " active" : "");
-    const preview = (t.content || "").trim().slice(0, 14) || `Text #${i + 1}`;
+    pill.className = "txt-item-pill" + (t.id === selectedTextTrackId ? " active" : "");
+    const preview = (t.content || "").trim().slice(0, 14) || `Title #${i + 1}`;
     pill.innerHTML = `
       <span>${preview}</span>
       <span class="pill-del" title="Delete this text layer">✕</span>
@@ -1352,22 +1398,216 @@ function renderTextItemPills(shot) {
       if (e.target.closest(".pill-del")) {
         e.stopPropagation();
         pushUndoState();
-        texts.splice(i, 1);
-        if (activeTextItemIdx >= texts.length) activeTextItemIdx = Math.max(0, texts.length - 1);
-        shot.text = texts.length ? texts[0] : defaultTextOverlay();
-        renderTimelineTrack();
-        populateTextControls(shot);
-        applyTextOverlayToPreview();
-        markTimelineDirty();
+        deleteSelectedTextTrackItem(t.id);
         return;
       }
-      activeTextItemIdx = i;
-      populateTextControls(shot);
-      applyTextOverlayToPreview();
-      renderTextItemPills(shot);
+      selectTextTrackItem(t.id);
     });
     txtItemsStrip.appendChild(pill);
   });
+}
+
+function renderTextTrack() {
+  if (!tlTextStrip) return;
+  tlTextStrip.innerHTML = "";
+
+  const totalDur = shotPlan.reduce((acc, s) => acc + Number(s.duration || 0), 0) || 10.0;
+  const trackWidth = tlRulerStrip ? Math.max(480, tlRulerStrip.getBoundingClientRect().width) : 800;
+  tlTextStrip.style.width = `${trackWidth}px`;
+
+  if (!textTrackItems.length) {
+    tlTextStrip.innerHTML = `
+      <div style="color:var(--text-dim); font-size:11px; display:flex; align-items:center; padding-left:10px; height:100%; pointer-events:none;">
+        Click ➕ Add on the left to place a text title overlay on the timeline · Double-click to add.
+      </div>
+    `;
+    return;
+  }
+
+  textTrackItems.forEach((item, idx) => {
+    if (!item.id) item.id = `txt_${Date.now()}_${idx}`;
+    const startSec = Math.max(0, Number(item.start_time || 0));
+    const durSec = Math.max(0.2, Number(item.duration || 2.5));
+
+    const leftPx = Math.round((startSec / totalDur) * trackWidth);
+    const widthPx = Math.max(50, Math.round((durSec / totalDur) * trackWidth));
+
+    const isSelected = item.id === selectedTextTrackId;
+    const card = document.createElement("div");
+    card.className = "tl-text-clip" + (isSelected ? " selected" : "");
+    card.dataset.id = item.id;
+    card.style.left = `${leftPx}px`;
+    card.style.width = `${widthPx}px`;
+
+    const titleText = (item.content || "").trim().slice(0, 24) || `Title #${idx + 1}`;
+
+    card.innerHTML = `
+      <div class="tl-trim-handle left" title="Drag left/right to trim In-Point">[</div>
+      <div class="tl-text-body">
+        <span class="tl-text-title">🔤 ${titleText}</span>
+        <span class="tl-text-meta">${durSec.toFixed(1)}s</span>
+      </div>
+      <div class="tl-trim-handle right" title="Drag left/right to trim Out-Point / Duration">]</div>
+    `;
+
+    // Click to select
+    card.addEventListener("click", (e) => {
+      e.stopPropagation();
+      selectTextTrackItem(item.id);
+    });
+
+    // Left Handle Trim
+    const leftHandle = card.querySelector(".tl-trim-handle.left");
+    if (leftHandle) {
+      leftHandle.addEventListener("mousedown", (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        pushUndoState();
+        selectTextTrackItem(item.id);
+        activeTextTrim = {
+          id: item.id,
+          side: "left",
+          startX: e.clientX,
+          origStart: startSec,
+          origDur: durSec,
+          cardEl: card,
+          metaEl: card.querySelector(".tl-text-meta"),
+          totalDur,
+          trackWidth,
+        };
+      });
+    }
+
+    // Right Handle Trim
+    const rightHandle = card.querySelector(".tl-trim-handle.right");
+    if (rightHandle) {
+      rightHandle.addEventListener("mousedown", (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        pushUndoState();
+        selectTextTrackItem(item.id);
+        activeTextTrim = {
+          id: item.id,
+          side: "right",
+          startX: e.clientX,
+          origStart: startSec,
+          origDur: durSec,
+          cardEl: card,
+          metaEl: card.querySelector(".tl-text-meta"),
+          totalDur,
+          trackWidth,
+        };
+      });
+    }
+
+    // Body Drag (Move in time)
+    const bodyEl = card.querySelector(".tl-text-body");
+    if (bodyEl) {
+      bodyEl.addEventListener("mousedown", (e) => {
+        if (e.button !== 0) return;
+        e.stopPropagation();
+        e.preventDefault();
+        pushUndoState();
+        selectTextTrackItem(item.id);
+        activeTextMove = {
+          id: item.id,
+          startX: e.clientX,
+          origStart: startSec,
+          dur: durSec,
+          cardEl: card,
+          metaEl: card.querySelector(".tl-text-meta"),
+          totalDur,
+          trackWidth,
+        };
+      });
+    }
+
+    tlTextStrip.appendChild(card);
+  });
+}
+
+function selectTextTrackItem(id) {
+  selectedTextTrackId = id;
+  switchInspectorSubtab("text");
+  populateTextControls();
+  renderTextTrack();
+  const item = textTrackItems.find((t) => t.id === id);
+  if (item) {
+    applyTimelineTextOverlayToPreview(item.start_time);
+  } else {
+    applyTimelineTextOverlayToPreview();
+  }
+}
+
+function addNewTextTrackItem(customStartTime = null) {
+  pushUndoState();
+  const totalDur = shotPlan.reduce((acc, s) => acc + Number(s.duration || 0), 0) || 10.0;
+  let startAt = 0.0;
+  if (customStartTime !== null) {
+    startAt = Math.max(0, Math.min(totalDur - 0.5, customStartTime));
+  } else if (textTrackItems.length > 0) {
+    const lastItem = textTrackItems[textTrackItems.length - 1];
+    startAt = Math.min(totalDur - 0.5, Number((lastItem.start_time + lastItem.duration).toFixed(2)));
+  }
+  const dur = Math.max(0.5, Math.min(3.0, totalDur - startAt));
+
+  const newItem = {
+    id: `txt_${Date.now()}`,
+    content: `Title #${textTrackItems.length + 1}`,
+    font: "Arial Bold",
+    size: 56,
+    color: "#FFFFFF",
+    bg_style: "plain",
+    bg_color: "#1F2C38",
+    x: 50,
+    y: 80,
+    start_time: Number(startAt.toFixed(2)),
+    duration: Number(dur.toFixed(2)),
+  };
+
+  textTrackItems.push(newItem);
+  selectTextTrackItem(newItem.id);
+  renderTextTrack();
+  applyTimelineTextOverlayToPreview(startAt);
+  markTimelineDirty();
+
+  if (txtOverlayContent) {
+    txtOverlayContent.focus();
+    txtOverlayContent.select();
+  }
+}
+
+function duplicateSelectedTextTrackItem() {
+  const item = getSelectedTextTrackItem();
+  if (!item) return;
+  pushUndoState();
+  const cloned = JSON.parse(JSON.stringify(item));
+  cloned.id = `txt_${Date.now()}`;
+  const totalDur = shotPlan.reduce((acc, s) => acc + Number(s.duration || 0), 0) || 10.0;
+  cloned.start_time = Math.min(totalDur - 0.5, cloned.start_time + 1.0);
+  cloned.y = Math.min(90, (cloned.y || 80) + 6);
+  textTrackItems.push(cloned);
+  selectTextTrackItem(cloned.id);
+  renderTextTrack();
+  applyTimelineTextOverlayToPreview(cloned.start_time);
+  markTimelineDirty();
+}
+
+function deleteSelectedTextTrackItem(targetId = null) {
+  const idToDelete = targetId || selectedTextTrackId;
+  if (!idToDelete) return;
+  pushUndoState();
+  const idx = textTrackItems.findIndex((t) => t.id === idToDelete);
+  if (idx >= 0) {
+    textTrackItems.splice(idx, 1);
+  }
+  if (selectedTextTrackId === idToDelete) {
+    selectedTextTrackId = textTrackItems.length ? textTrackItems[Math.max(0, idx - 1)].id : null;
+  }
+  populateTextControls();
+  renderTextTrack();
+  applyTimelineTextOverlayToPreview();
+  markTimelineDirty();
 }
 
 function applyReframeTransformToPreview() {
@@ -2995,88 +3235,232 @@ window.openJobFolder = async function (jid) {
   } catch (err) {}
 };
 
+let cachedProjectsList = [];
+
 async function loadHistoryJobs() {
-  const list = $("hist-job-list");
-  if (!list) return;
+  const grid = $("projects-grid");
+  if (!grid) return;
   try {
     const res = await fetch("/api/jobs");
     const data = await res.json();
-    list.innerHTML = "";
 
-    if (data.disk_free) $("hist-disk-free").innerText = formatBytes(data.disk_free);
-    if (!data.jobs || data.jobs.length === 0) {
-      list.innerHTML = '<div style="text-align:center; padding:30px; color:var(--text-faint);">No past jobs found.</div>';
-      $("hist-total-jobs").innerText = "0";
-      $("hist-total-size").innerText = "0 Bytes";
-      return;
+    cachedProjectsList = data.jobs || [];
+
+    if (data.disk_free && $("hist-disk-free")) {
+      $("hist-disk-free").innerText = formatBytes(data.disk_free);
+    }
+    const totalSize = cachedProjectsList.reduce((acc, j) => acc + (j.size_bytes || 0), 0);
+    if ($("hist-total-size")) {
+      $("hist-total-size").innerText = formatBytes(totalSize);
     }
 
-    let totalSize = 0;
-    data.jobs.forEach((job) => {
-      totalSize += job.size_bytes;
-      const videoUrl = `/api/media/${job.job_id}/${job.video_file || "built_reel.mp4"}`;
-      const edlUrl = `/api/media/${job.job_id}/timeline.edl`;
-      const fcpxmlUrl = `/api/media/${job.job_id}/timeline.fcpxml`;
-
-      const card = document.createElement("div");
-      card.className = "job-card";
-      card.innerHTML = `
-        <input type="checkbox" class="hist-job-cb" value="${job.job_id}">
-        <div class="job-info">
-          <span class="job-name">${job.filename || "Unknown"}</span>
-          <div class="job-meta">
-            <span>${formatDate(job.timestamp)}</span>
-            <span>${formatBytes(job.size_bytes)}</span>
-            <span>${job.job_id}</span>
-          </div>
-        </div>
-        <div class="job-actions">
-          <button type="button" class="btn btn-primary btn-sm" onclick="loadJobIntoEditor('${job.job_id}')">▶ Load in Editor</button>
-          <button type="button" class="btn btn-secondary btn-sm" onclick="openJobFolder('${job.job_id}')">📂 Folder</button>
-          <a href="${videoUrl}?dl=1" download class="btn btn-secondary btn-sm" style="text-decoration:none;">Video ↓</a>
-          <a href="${fcpxmlUrl}" download="timeline.fcpxml" class="btn btn-secondary btn-sm" style="text-decoration:none;">FCPXML ↓</a>
-          <a href="${edlUrl}" download="timeline.edl" class="btn btn-secondary btn-sm" style="text-decoration:none;">EDL ↓</a>
-        </div>
-      `;
-      list.appendChild(card);
-    });
-
-    $("hist-total-jobs").innerText = data.jobs.length;
-    $("hist-total-size").innerText = formatBytes(totalSize);
-
-    const cbs = document.querySelectorAll(".hist-job-cb");
-    const selAll = $("hist-select-all");
-    const btnDel = $("btn-hist-delete");
-
-    const updateDel = () => {
-      const count = document.querySelectorAll(".hist-job-cb:checked").length;
-      btnDel.disabled = count === 0;
-      btnDel.innerText = count > 0 ? `🗑️ Delete Selected (${count})` : "🗑️ Delete Selected";
-    };
-
-    cbs.forEach((cb) =>
-      cb.addEventListener("change", () => {
-        selAll.checked = document.querySelectorAll(".hist-job-cb:not(:checked)").length === 0;
-        updateDel();
-      })
-    );
-    if (selAll) {
-      selAll.onchange = (e) => {
-        cbs.forEach((cb) => (cb.checked = e.target.checked));
-        updateDel();
-      };
-    }
-  } catch (e) {
-    list.innerHTML = '<div style="color:var(--danger); padding:20px;">Error loading jobs.</div>';
+    renderProjectsGrid(cachedProjectsList);
+  } catch (err) {
+    grid.innerHTML = '<div style="color:var(--danger); padding:30px; text-align:center;">Failed to load projects.</div>';
   }
 }
 
-if ($("btn-hist-delete")) {
-  $("btn-hist-delete").addEventListener("click", async () => {
-    const selected = Array.from(document.querySelectorAll(".hist-job-cb:checked")).map((cb) => cb.value);
+function renderProjectsGrid(jobsToRender) {
+  const grid = $("projects-grid");
+  if (!grid) return;
+  grid.innerHTML = "";
+
+  const query = ($("proj-search-input") ? $("proj-search-input").value : "").trim().toLowerCase();
+  const filtered = query
+    ? jobsToRender.filter((j) => (j.job_name || "").toLowerCase().includes(query) || (j.job_id || "").toLowerCase().includes(query))
+    : jobsToRender;
+
+  if ($("proj-count-badge")) {
+    $("proj-count-badge").innerText = `${filtered.length} project${filtered.length === 1 ? "" : "s"}`;
+  }
+
+  // 1. "➕ New Project" Card (First in the grid, matching CapCut)
+  const newCard = document.createElement("div");
+  newCard.className = "project-card new-project-card";
+  newCard.title = "Create a new project in the editor";
+  newCard.innerHTML = `
+    <div class="new-project-inner">
+      <div class="new-project-icon">➕</div>
+      <div class="new-project-title">New Project</div>
+      <div class="new-project-sub">Beat-synced video reel</div>
+    </div>
+  `;
+  newCard.addEventListener("click", () => {
+    startNewJob();
+    switchMainTab("beatsync");
+  });
+  grid.appendChild(newCard);
+
+  // 2. Project Cards
+  filtered.forEach((job) => {
+    const card = document.createElement("div");
+    card.className = "project-card";
+    card.dataset.jid = job.job_id;
+
+    const dur = job.formatted_duration || "00:00";
+    const statusClass = (job.status || "draft").toLowerCase();
+    const sizeStr = formatBytes(job.size_bytes);
+    const dateStr = formatDate(job.timestamp);
+
+    card.innerHTML = `
+      <div class="project-thumb-wrap">
+        <img class="project-thumb-img" src="${job.thumb_url}" alt="${job.job_name}" loading="lazy">
+        <div class="project-thumb-gradient"></div>
+        <span class="project-dur-badge">${dur}</span>
+        <span class="project-status-badge ${statusClass}">${job.status || "Draft"}</span>
+
+        <input type="checkbox" class="project-cb" value="${job.job_id}" title="Select for batch delete">
+
+        <div class="project-hover-overlay">
+          <button type="button" class="btn-proj-card-open">▶ Open Project</button>
+          <div class="project-hover-tools">
+            <button type="button" class="btn-proj-icon-btn btn-proj-rename" title="Rename Project">✏️</button>
+            <button type="button" class="btn-proj-icon-btn btn-proj-reveal" title="Show in Finder">📁</button>
+            <button type="button" class="btn-proj-icon-btn btn-proj-del" title="Delete Project">🗑️</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="project-card-footer">
+        <div class="project-card-title-row">
+          <div class="project-card-title" title="${job.job_name}">${job.job_name}</div>
+        </div>
+        <div class="project-card-meta">
+          <span>${sizeStr}</span>
+          <span>·</span>
+          <span>${dateStr}</span>
+        </div>
+      </div>
+    `;
+
+    // Click on thumbnail or Open button -> opens project
+    card.addEventListener("click", (e) => {
+      if (e.target.closest(".project-cb") || e.target.closest(".project-hover-tools")) return;
+      window.loadJobIntoEditor(job.job_id);
+    });
+
+    // Checkbox click
+    const cb = card.querySelector(".project-cb");
+    if (cb) {
+      cb.addEventListener("click", (e) => e.stopPropagation());
+      cb.addEventListener("change", () => {
+        card.classList.toggle("selected", cb.checked);
+        updateBatchDeleteUI();
+      });
+    }
+
+    // Rename
+    const btnRename = card.querySelector(".btn-proj-rename");
+    if (btnRename) {
+      btnRename.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const curName = job.job_name || job.job_id;
+        const newName = prompt("Rename project:", curName);
+        if (!newName || newName.trim() === "" || newName.trim() === curName) return;
+        try {
+          await fetch("/api/job_rename", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ job_id: job.job_id, job_name: newName.trim() }),
+          });
+          job.job_name = newName.trim();
+          const titleEl = card.querySelector(".project-card-title");
+          if (titleEl) {
+            titleEl.textContent = job.job_name;
+            titleEl.title = job.job_name;
+          }
+          if (jobId === job.job_id && topJobInput) {
+            topJobInput.value = job.job_name;
+          }
+        } catch (err) {
+          alert("Error renaming project: " + err.message);
+        }
+      });
+    }
+
+    // Reveal in Finder
+    const btnReveal = card.querySelector(".btn-proj-reveal");
+    if (btnReveal) {
+      btnReveal.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        try {
+          await fetch(`/api/jobs/open/${job.job_id}`, { method: "POST" });
+        } catch (err) {}
+      });
+    }
+
+    // Delete single project
+    const btnDel = card.querySelector(".btn-proj-del");
+    if (btnDel) {
+      btnDel.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        if (!confirm(`Are you sure you want to permanently delete project "${job.job_name}"?`)) return;
+        try {
+          await fetch("/api/jobs/delete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ job_ids: [job.job_id] }),
+          });
+          card.style.transition = "all 0.25s ease";
+          card.style.opacity = "0";
+          card.style.transform = "scale(0.85)";
+          setTimeout(() => {
+            card.remove();
+            cachedProjectsList = cachedProjectsList.filter((j) => j.job_id !== job.job_id);
+            if ($("proj-count-badge")) {
+              $("proj-count-badge").innerText = `${cachedProjectsList.length} projects`;
+            }
+          }, 250);
+        } catch (err) {
+          alert("Failed to delete project: " + err.message);
+        }
+      });
+    }
+
+    grid.appendChild(card);
+  });
+}
+
+function updateBatchDeleteUI() {
+  const selectedCbs = Array.from(document.querySelectorAll(".project-cb:checked"));
+  const btnBatchDel = $("btn-proj-batch-delete");
+  const countEl = $("proj-del-count");
+  if (!btnBatchDel) return;
+  if (selectedCbs.length > 0) {
+    btnBatchDel.classList.remove("hidden");
+    if (countEl) countEl.innerText = String(selectedCbs.length);
+  } else {
+    btnBatchDel.classList.add("hidden");
+  }
+}
+
+// Search input live filter
+if ($("proj-search-input")) {
+  $("proj-search-input").addEventListener("input", () => {
+    renderProjectsGrid(cachedProjectsList);
+  });
+}
+
+// Top Bar Action Buttons in Projects View
+if ($("btn-proj-new")) {
+  $("btn-proj-new").addEventListener("click", () => {
+    startNewJob();
+    switchMainTab("beatsync");
+  });
+}
+
+if ($("btn-proj-open-file")) {
+  $("btn-proj-open-file").addEventListener("click", () => {
+    if (inputOpenProject) inputOpenProject.click();
+  });
+}
+
+if ($("btn-proj-batch-delete")) {
+  $("btn-proj-batch-delete").addEventListener("click", async () => {
+    const selected = Array.from(document.querySelectorAll(".project-cb:checked")).map((cb) => cb.value);
     if (!selected.length) return;
-    if (!confirm(`Are you sure you want to permanently delete ${selected.length} job folder(s)?`)) return;
-    $("btn-hist-delete").disabled = true;
+    if (!confirm(`Are you sure you want to permanently delete ${selected.length} selected project(s)?`)) return;
+    $("btn-proj-batch-delete").disabled = true;
     try {
       await fetch("/api/jobs/delete", {
         method: "POST",
@@ -3084,7 +3468,12 @@ if ($("btn-hist-delete")) {
         body: JSON.stringify({ job_ids: selected }),
       });
       await loadHistoryJobs();
-    } catch (e) {}
+    } catch (e) {
+      alert("Error deleting projects: " + e.message);
+    } finally {
+      $("btn-proj-batch-delete").disabled = false;
+      updateBatchDeleteUI();
+    }
   });
 }
 
