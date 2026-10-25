@@ -17,9 +17,17 @@ let projectFps = 30;
 let currentRhythm = null;
 let shotPlan = [];
 let availableClips = [];
+let customClipPaths = {};
 let selectedShotIdx = -1;
 let timelineDirty = false;
 const localThumbCache = {};
+
+// Auto-Pool Replaced Clips Toggle State (persisted in localStorage)
+let autoPoolReplacedClips = true;
+try {
+  const savedPoolPref = localStorage.getItem("reel_auto_pool_replace");
+  if (savedPoolPref !== null) autoPoolReplacedClips = savedPoolPref !== "false";
+} catch (e) {}
 
 // Grading / 3D LUT / Custom Audio Track State
 let lutFile = null;
@@ -949,6 +957,15 @@ function previewMediaBinClip(name, idx) {
     selectShot(matchingShotIdx);
     return;
   }
+  if (customClipPaths && customClipPaths[name]) {
+    const jId = jobId || "local";
+    sourcePreview.src = `/api/clip_preview/${jId}/${encodeURIComponent(name)}?file_path=${encodeURIComponent(customClipPaths[name])}`;
+    sourcePreview.setAttribute("data-clip", name);
+    sourcePreview.style.transform = "translate(0%, 0%) scale(1)";
+    showMonitorTab("source");
+    sourcePreview.play().catch(() => {});
+    return;
+  }
   if (!localFolderPath && clipFiles[idx]) {
     if (!clipFiles[idx]._blobUrl) clipFiles[idx]._blobUrl = URL.createObjectURL(clipFiles[idx]);
     sourcePreview.src = clipFiles[idx]._blobUrl;
@@ -968,7 +985,7 @@ function previewMediaBinClip(name, idx) {
 function renderClipList() {
   clipList.innerHTML = "";
   clipList.classList.toggle("thumb-grid", mediaViewMode === "thumb");
-  const names = localFolderPath ? localClipNames : clipFiles.map((f) => f.name);
+  const names = localFolderPath ? localClipNames : (clipFiles.length ? clipFiles.map((f) => f.name) : availableClips);
 
   names.forEach((name, i) => {
     const shortName = name.replace(/\.(mov|mp4|m4v|mkv|avi|webm)$/i, "");
@@ -984,6 +1001,9 @@ function renderClipList() {
         getClientThumb(clipFiles[i], 0.2, (dataUrl) => {
           card.style.backgroundImage = `url("${dataUrl}")`;
         });
+      } else if (customClipPaths && customClipPaths[name]) {
+        const thumbUrl = `/api/folder_thumb?file_path=${encodeURIComponent(customClipPaths[name])}&clip=${encodeURIComponent(name)}`;
+        card.style.backgroundImage = `url("${thumbUrl}")`;
       } else if (localFolderPath) {
         const thumbUrl = `/api/folder_thumb?folder=${encodeURIComponent(localFolderPath)}&clip=${encodeURIComponent(name)}`;
         card.style.backgroundImage = `url("${thumbUrl}")`;
@@ -2468,6 +2488,10 @@ if (reframeViewport) {
 
 function resolveClipSourceUrl(clipName) {
   if (!clipName || clipName.includes("(awaiting clips)")) return null;
+  if (customClipPaths && customClipPaths[clipName]) {
+    const jId = jobId || "local";
+    return `/api/clip_preview/${jId}/${encodeURIComponent(clipName)}?file_path=${encodeURIComponent(customClipPaths[clipName])}`;
+  }
   if (!localFolderPath && clipFiles.length) {
     const f = clipFiles.find((cf) => cf.name === clipName);
     if (f) {
@@ -3336,6 +3360,28 @@ function applyClipReplacement(shotIdx, clipName, filePath, clipDuration, browser
     shot._blobThumb = `/api/clip_thumb/${jId}/${encodeURIComponent(clipName)}?file_path=${encodeURIComponent(filePath)}&t=0.0`;
   }
 
+  // Automatic Toggle: Import replaced footage into Media Pool if enabled
+  if (autoPoolReplacedClips) {
+    if (filePath) {
+      customClipPaths[clipName] = filePath;
+    }
+    if (browserFile && !clipFiles.some((f) => f.name === browserFile.name)) {
+      browserFile._blobUrl = shot._blobUrl;
+      clipFiles.push(browserFile);
+    }
+    if (!availableClips.includes(clipName)) {
+      availableClips.push(clipName);
+    }
+    if (localFolderPath && !localClipNames.includes(clipName)) {
+      localClipNames.push(clipName);
+    }
+    if (fnClips) {
+      const count = localFolderPath ? localClipNames.length : (clipFiles.length || availableClips.length);
+      fnClips.innerText = `📁 ${count} clip(s) in Media Pool`;
+    }
+    renderClipList();
+  }
+
   renderTimelineTrack();
   populateInspector();
   previewSelectedShotInMonitor(false);
@@ -3344,8 +3390,31 @@ function applyClipReplacement(shotIdx, clipName, filePath, clipDuration, browser
 
   const hintEl = $("tl-hint");
   if (hintEl) {
-    hintEl.textContent = `🔄 Shot #${shotIdx + 1} replaced with "${clipName}". Other timeline clips untouched.`;
+    hintEl.textContent = autoPoolReplacedClips
+      ? `🔄 Shot #${shotIdx + 1} replaced with "${clipName}" & imported into Media Pool.`
+      : `🔄 Shot #${shotIdx + 1} replaced with "${clipName}". Other timeline clips untouched.`;
   }
+}
+
+const toggleAutoPoolReplace = $("toggle-auto-pool-replace");
+const toggleInspAutoPool = $("toggle-insp-auto-pool");
+
+function setAutoPoolReplacedClips(val) {
+  autoPoolReplacedClips = Boolean(val);
+  try {
+    localStorage.setItem("reel_auto_pool_replace", autoPoolReplacedClips ? "true" : "false");
+  } catch (e) {}
+  if (toggleAutoPoolReplace) toggleAutoPoolReplace.checked = autoPoolReplacedClips;
+  if (toggleInspAutoPool) toggleInspAutoPool.checked = autoPoolReplacedClips;
+}
+
+if (toggleAutoPoolReplace) {
+  toggleAutoPoolReplace.checked = autoPoolReplacedClips;
+  toggleAutoPoolReplace.addEventListener("change", (e) => setAutoPoolReplacedClips(e.target.checked));
+}
+if (toggleInspAutoPool) {
+  toggleInspAutoPool.checked = autoPoolReplacedClips;
+  toggleInspAutoPool.addEventListener("change", (e) => setAutoPoolReplacedClips(e.target.checked));
 }
 
 if (btnTlReplace) btnTlReplace.addEventListener("click", replaceSelectedTimelineClip);
@@ -3784,7 +3853,13 @@ if (inspClipSelect) {
   inspClipSelect.addEventListener("change", () => {
     if (selectedShotIdx < 0) return;
     pushUndoState();
-    shotPlan[selectedShotIdx].clip = inspClipSelect.value;
+    const selClip = inspClipSelect.value;
+    shotPlan[selectedShotIdx].clip = selClip;
+    if (customClipPaths && customClipPaths[selClip]) {
+      shotPlan[selectedShotIdx].file_path = customClipPaths[selClip];
+    } else {
+      shotPlan[selectedShotIdx].file_path = null;
+    }
     shotPlan[selectedShotIdx].in_point = 0;
     inspInpoint.value = "0.00";
     inspInpointSlider.value = 0;
@@ -4859,6 +4934,7 @@ function closeCurrentJob() {
   localFolderPath = null;
   localClipNames = [];
   availableClips = [];
+  customClipPaths = {};
   currentRhythm = null;
   shotPlan = [];
   selectedShotIdx = -1;

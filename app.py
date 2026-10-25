@@ -784,12 +784,16 @@ def api_clip_reversed(job_id, clip_name):
     if not out_path.exists():
         tmp_path = cache_dir / f"rev_{key}.tmp.mp4"
         # Hardware accelerated Apple VideoToolbox first for full 4K/1080p resolution in ~2-3s
+        from build_reel import get_clip_hdr_tonemap_filter
+        hdr_tm = get_clip_hdr_tonemap_filter(target)
+        rev_vf = f"{hdr_tm},reverse" if hdr_tm else "reverse"
+
         cmd = [
             FFMPEG, "-y",
             "-ss", f"{t_in:.3f}",
             "-i", str(target),
             "-t", f"{dur:.3f}",
-            "-vf", "reverse",
+            "-vf", rev_vf,
             "-af", "areverse",
             "-c:v", "h264_videotoolbox", "-b:v", "28M",
             "-pix_fmt", "yuv420p",
@@ -812,7 +816,7 @@ def api_clip_reversed(job_id, clip_name):
                 "-ss", f"{t_in:.3f}",
                 "-i", str(target),
                 "-t", f"{dur:.3f}",
-                "-vf", "reverse",
+                "-vf", rev_vf,
                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "17",
                 "-pix_fmt", "yuv420p",
                 "-an",
@@ -896,11 +900,15 @@ def api_clip_thumb(job_id, clip_name):
 def api_folder_thumb():
     import hashlib, subprocess
     from ffmpeg_utils import FFMPEG
-    folder = request.args.get("folder")
-    clip_name = request.args.get("clip")
-    if not folder or not clip_name:
-        return jsonify({"error": "Missing params"}), 400
-    target = Path(folder) / clip_name
+    file_path = request.args.get("file_path") or request.args.get("path")
+    if file_path and Path(file_path).is_file():
+        target = Path(file_path)
+    else:
+        folder = request.args.get("folder")
+        clip_name = request.args.get("clip")
+        if not folder or not clip_name:
+            return jsonify({"error": "Missing params"}), 400
+        target = Path(folder) / clip_name
     if not target.exists():
         return jsonify({"error": "Clip not found"}), 404
 

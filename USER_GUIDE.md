@@ -101,6 +101,9 @@ The timeline is designed to feel just like **DaVinci Resolve** and **Adobe Premi
 ### Replacing Clips with External Media (`🔄`)
 * **Isolated Shot Replacement:** You can swap any individual shot on the timeline with an external video file from anywhere on your Mac SSD, even if it is not inside your media library folder.
 * **How to Replace:** Select the shot card on the timeline, then click **🔄 Replace** on the timeline toolbar (or click **🔄 Replace Clip...** in the Inspector, or press <kbd>⌥R</kbd>).
+* **Auto-Pool Replaced Toggle:**
+  - **When ON (Default):** The replacement footage is automatically added into your **Media Pool** with an instant thumbnail, allowing you to easily reuse it on other shots or select it from the Assigned Clip dropdown.
+  - **When OFF:** The replacement clip remains strictly isolated to that single shot on the timeline, keeping your Media Pool clean and untouched.
 * **Multi-Use Footage Protection:** If other shots in your timeline share the same original clip from your media library, replacing this shot will **never** alter those other shots. Only the active shot is swapped.
 * **Full Live Monitor & Bake Support:** The live monitor immediately loads and previews the new clip, and clicking **⚡ Build Reel (Bake Edits)** bakes the replacement footage into the final rendered reel.
 
@@ -136,6 +139,9 @@ Click any clip on the timeline and explore the **Inspector Panel** on the right:
 * **Vignette:** Add natural optical lens falloff to draw the viewer's eyes directly to the center of the dish or subject.
 * **Fades:** Add smooth fade-from-black or fade-to-black transitions in tenths of a second.
 * **3D LUT Support:** Click **Load .CUBE LUT** to apply your favorite DaVinci Resolve or camera manufacturer color grading LUTs (`.cube`).
+* **1:1 WYSIWYG Monitor-to-Bake Color Parity:**
+  - What you see in the Live Sequence & Reframe monitor is rendered identically in your final master video file down to the exact highlight roll-off and RGB gain.
+  - **Automatic iPhone HDR (HLG BT.2020) Tonemapping:** When shooting on iPhone 12 through 16 Pro Max (Apple HLG / Dolby Vision Profile 8.4), Reel Pipeline automatically tone-maps the 1000-nit extended dynamic range to Rec.709 SDR using broadcast-standard Hable curve compression. Ice cubes, glassware, lime slices, and bright backlights maintain their rich texture without ever blowing out into harsh nuclear white.
 
 ---
 

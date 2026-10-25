@@ -372,8 +372,14 @@
             <input type="file" id="input-clips" accept="video/*" multiple hidden>
             <input type="file" id="input-clips-folder" accept="video/*" webkitdirectory directory multiple hidden>
 
-            <!-- Sleek summary status bar -->
-            <div class="dz-filename mono" id="fn-clips" style="font-size:10.5px; color:var(--text-dim); margin-bottom:4px; padding:2px 4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">No footage clips loaded</div>
+            <!-- Sleek summary status bar + Auto-Pool Toggle -->
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; gap:8px;">
+              <div class="dz-filename mono" id="fn-clips" style="font-size:10.5px; color:var(--text-dim); padding:2px 4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;">No footage clips loaded</div>
+              <label class="checkbox" style="font-size:10px; color:var(--text-dim); margin:0; flex-shrink:0; cursor:pointer;" title="Automatically import any replacement clip into this Media Pool so it can be reused across shots">
+                <input type="checkbox" id="toggle-auto-pool-replace" checked>
+                Auto-Pool Replaced
+              </label>
+            </div>
 
             <!-- Media Library thumbnails expanding to fill maximum space -->
             <div id="clip-list" class="clip-list thumb-grid" style="flex:1; min-height:180px; overflow-y:auto;"></div>
@@ -507,7 +513,13 @@
                 <div class="inspector-field">
                   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
                     <label style="margin:0;"><span>Assigned Source Clip</span></label>
-                    <button type="button" id="btn-insp-replace-clip" class="btn btn-secondary btn-xs" title="Replace this clip with any external video file on your computer">🔄 Replace Clip...</button>
+                    <button type="button" id="btn-insp-replace-clip" class="btn btn-secondary btn-xs" title="Replace this clip with any external video file on your computer (⌥R)">🔄 Replace Clip...</button>
+                  </div>
+                  <div style="display:flex; justify-content:flex-end; margin-bottom:6px;">
+                    <label class="checkbox" style="font-size:10px; color:var(--text-dim); margin:0; cursor:pointer;" title="Automatically add any replaced clip into the Media Pool">
+                      <input type="checkbox" id="toggle-insp-auto-pool" checked>
+                      Auto-import replaced to Media Pool
+                    </label>
                   </div>
                   <div class="tactile-select-wrap">
                     <select id="insp-clip-select"></select>

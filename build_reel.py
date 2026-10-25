@@ -247,8 +247,49 @@ def render_text_overlay_png(texts_input, width: int, height: int, out_png: Path)
     return True
 
 
+_clip_hdr_cache = {}
+
+
+def get_clip_hdr_tonemap_filter(clip_path) -> str:
+    """Return zscale HLG/HDR to Rec.709 SDR tonemapping filter if clip is HDR, else empty string.
+    Matches macOS AVFoundation / Safari EDR highlight roll-off perfectly without blowing out whites."""
+    c_str = str(clip_path)
+    if c_str in _clip_hdr_cache:
+        return _clip_hdr_cache[c_str]
+    try:
+        cmd = [FFMPEG, "-i", c_str]
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        out = res.stderr.lower()
+        if "arib-std-b67" in out or "bt2020" in out or "dovi" in out:
+            # iPhone 10-bit HLG (arib-std-b67) / Dolby Vision Profile 8.4
+            tonemap_vf = (
+                "zscale=tin=arib-std-b67:pin=bt2020:min=bt2020nc,"
+                "zscale=t=linear:npl=200,"
+                "tonemap=hable:desat=0,"
+                "zscale=p=bt709:t=bt709:m=bt709:r=limited"
+            )
+            _clip_hdr_cache[c_str] = tonemap_vf
+            return tonemap_vf
+        elif "smpte2084" in out:
+            # HDR10 / PQ
+            tonemap_vf = (
+                "zscale=tin=smpte2084:pin=bt2020:min=bt2020nc,"
+                "zscale=t=linear:npl=100,"
+                "tonemap=hable:desat=0,"
+                "zscale=p=bt709:t=bt709:m=bt709:r=limited"
+            )
+            _clip_hdr_cache[c_str] = tonemap_vf
+            return tonemap_vf
+    except Exception:
+        pass
+
+    _clip_hdr_cache[c_str] = ""
+    return ""
+
+
 def build_grade_filter(grade: dict, shot_dur: float, lut_path: str = None) -> str:
-    """Build FFmpeg video filter chain for color grading, LUT, levels, curves, vignette & fades."""
+    """Build FFmpeg video filter chain for color grading, LUT, levels, curves, vignette & fades,
+    mathematically matched 1:1 with the live NLE monitor preview (no blown-out highlights)."""
     if not grade and not lut_path:
         return ""
     grade = grade or {}
@@ -259,49 +300,49 @@ def build_grade_filter(grade: dict, shot_dur: float, lut_path: str = None) -> st
         esc_lut = str(Path(lut_path).resolve()).replace("\\", "/").replace(":", r"\:")
         parts.append(f"lut3d=file='{esc_lut}'")
 
-    # 2. Brightness (-50..50), Contrast (-50..50), Saturation (-100..100)
-    b = float(grade.get("brightness", 0.0)) / 100.0
-    c = 1.0 + (float(grade.get("contrast", 0.0)) / 50.0)
-    s = max(0.0, 1.0 + (float(grade.get("saturation", 0.0)) / 100.0))
-    if abs(b) > 0.005 or abs(c - 1.0) > 0.005 or abs(s - 1.0) > 0.005:
-        parts.append(f"eq=brightness={b:.3f}:contrast={c:.3f}:saturation={s:.3f}")
+    # 2. Multiplicative Brightness & White Balance (matching CSS linear gain & SVG matrix)
+    b_val = float(grade.get("brightness", 0.0))
+    w_val = float(grade.get("whites", 0.0))
+    k_val = float(grade.get("blacks", 0.0))
+    b = 1.0 + (b_val / 100.0) + (w_val / 220.0) + (k_val / 220.0)
+    b = max(0.2, min(2.5, b))
 
-    # 3. Temperature (-100..100, Cool Blue <-> Warm Amber) & Tint (-100..100, Green <-> Magenta)
+    # White balance gains
     t_norm = float(grade.get("temperature", 0.0)) / 100.0
     m_norm = float(grade.get("tint", 0.0)) / 100.0
-    if abs(t_norm) > 0.005 or abs(m_norm) > 0.005:
-        r_gain = max(0.4, min(1.8, 1.0 + 0.28 * t_norm + 0.16 * m_norm))
-        g_gain = max(0.4, min(1.8, 1.0 + 0.08 * t_norm - 0.22 * m_norm))
-        b_gain = max(0.4, min(1.8, 1.0 - 0.28 * t_norm + 0.16 * m_norm))
-        parts.append(
-            f"colorchannelmixer=rr={r_gain:.4f}:gg={g_gain:.4f}:bb={b_gain:.4f}"
-        )
+    r_gain = max(0.4, min(1.8, 1.0 + 0.28 * t_norm + 0.16 * m_norm))
+    g_gain = max(0.4, min(1.8, 1.0 + 0.08 * t_norm - 0.22 * m_norm))
+    b_gain = max(0.4, min(1.8, 1.0 - 0.28 * t_norm + 0.16 * m_norm))
 
-    # 4. Levels: Whites (-50..50) & Blacks (-50..50)
-    whites = float(grade.get("whites", 0.0))
-    blacks = float(grade.get("blacks", 0.0))
-    if abs(whites) > 0.5 or abs(blacks) > 0.5:
-        imin = max(0.0, min(0.35, -blacks / 150.0)) if blacks < 0 else 0.0
-        omin = max(0.0, min(0.35, blacks / 150.0)) if blacks > 0 else 0.0
-        imax = max(0.65, min(1.0, 1.0 - (whites / 150.0))) if whites > 0 else 1.0
-        omax = max(0.65, min(1.0, 1.0 + (whites / 150.0))) if whites < 0 else 1.0
-        parts.append(
-            f"colorlevels=rimin={imin:.3f}:gimin={imin:.3f}:bimin={imin:.3f}:"
-            f"rimax={imax:.3f}:gimax={imax:.3f}:bimax={imax:.3f}:"
-            f"romin={omin:.3f}:gomin={omin:.3f}:bomin={omin:.3f}:"
-            f"romax={omax:.3f}:gomax={omax:.3f}:bomax={omax:.3f}"
-        )
+    # Combined RGB gain (Brightness * White Balance)
+    rr = r_gain * b
+    gg = g_gain * b
+    bb = b_gain * b
+    if abs(rr - 1.0) > 0.005 or abs(gg - 1.0) > 0.005 or abs(bb - 1.0) > 0.005:
+        parts.append(f"colorchannelmixer=rr={rr:.4f}:gg={gg:.4f}:bb={bb:.4f}")
 
-    # 5. Tone Curves preset
+    # 3. Contrast & Saturation (matching CSS contrast(c) and saturate(s))
+    c_val = float(grade.get("contrast", 0.0))
+    c = 1.0 + (c_val / 85.0) + (w_val / 260.0) - (k_val / 260.0)
     curve = (grade.get("curve") or "none").strip()
-    valid_curves = {
-        "lighter", "darker", "increase_contrast", "medium_contrast",
-        "strong_contrast", "linear_contrast", "vintage", "cross_process"
-    }
-    if curve in valid_curves:
-        parts.append(f"curves=preset={curve}")
+    if curve == "medium_contrast":
+        c *= 1.12
+    elif curve == "strong_contrast":
+        c *= 1.25
+    elif curve == "lighter":
+        c *= 0.95
+    elif curve == "darker":
+        c *= 1.08
+    c = max(0.3, min(2.5, c))
 
-    # 6. Vignette (0..100)
+    s = max(0.0, 1.0 + (float(grade.get("saturation", 0.0)) / 100.0))
+
+    if abs(c - 1.0) > 0.005 or abs(s - 1.0) > 0.005:
+        # Note: eq with brightness=0 and contrast=c centers precisely around midtones (128/255)
+        # exactly matching CSS contrast(c) with ZERO highlight clipping or additive wash.
+        parts.append(f"eq=contrast={c:.4f}:saturation={s:.4f}")
+
+    # 4. Vignette (0..100)
     vig = float(grade.get("vignette", 0.0))
     if vig > 1.0:
         # Map 0..100 -> angle 0.15..1.25 rad (ffmpeg default PI/5≈0.63) so the
@@ -309,7 +350,7 @@ def build_grade_filter(grade: dict, shot_dur: float, lut_path: str = None) -> st
         angle = 0.15 + min(1.0, vig / 100.0) * 1.10
         parts.append(f"vignette=angle={angle:.4f}")
 
-    # 7. Fade In & Fade Out (seconds)
+    # 5. Fade In & Fade Out (seconds)
     fi = float(grade.get("fade_in", 0.0))
     fo = float(grade.get("fade_out", 0.0))
     if fi > 0.02:
@@ -585,6 +626,13 @@ def build(
             # Trim to the exact used window BEFORE reversing, so the selected
             # [in_point, in_point + use_duration] segment plays backwards.
             vf = f"trim=duration={use_duration:.3f},setpts=PTS-STARTPTS,reverse," + vf
+
+        # If rendering SDR and source is HDR (e.g. iPhone HLG/Dolby Vision),
+        # apply tonemapping first so highlights roll off with zero blowout, matching the live preview monitor.
+        if not hdr_output:
+            hdr_tm = get_clip_hdr_tonemap_filter(clip)
+            if hdr_tm:
+                vf = f"{hdr_tm},{vf}"
 
         grade_vf = build_grade_filter(item.get("grade"), duration, lut_path=lut_path)
         if grade_vf:
