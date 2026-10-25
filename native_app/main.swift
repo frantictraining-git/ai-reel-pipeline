@@ -1,5 +1,61 @@
 import Cocoa
 import WebKit
+import Darwin
+
+// Enforce strictly ONE instance of Reel Pipeline / Swift Reel
+let lockPath = "/tmp/reel_pipeline_runner.lock"
+let lockFd = open(lockPath, O_CREAT | O_RDWR, 0o666)
+
+if lockFd < 0 || flock(lockFd, LOCK_EX | LOCK_NB) != 0 {
+    // Another instance is already running. Find and activate it, then exit immediately.
+    var existingPid: pid_t = 0
+    if lockFd >= 0 {
+        var buf = [CChar](repeating: 0, count: 32)
+        lseek(lockFd, 0, SEEK_SET)
+        let bytesRead = read(lockFd, &buf, 31)
+        if bytesRead > 0 {
+            if let pidStr = String(cString: buf).split(separator: "\n").first,
+               let parsedPid = pid_t(pidStr) {
+                existingPid = parsedPid
+            }
+        }
+    }
+    
+    var activated = false
+    if existingPid > 0, let runningApp = NSRunningApplication(processIdentifier: existingPid) {
+        if runningApp.isHidden { runningApp.unhide() }
+        if #available(macOS 14.0, *) {
+            runningApp.activate()
+        } else {
+            runningApp.activate(options: [.activateIgnoringOtherApps])
+        }
+        activated = true
+    }
+    
+    if !activated {
+        let myPid = ProcessInfo.processInfo.processIdentifier
+        for app in NSWorkspace.shared.runningApplications {
+            if app.processIdentifier != myPid && (app.executableURL?.lastPathComponent == "ReelPipelineRunner" || app.localizedName == "ReelPipelineRunner" || app.localizedName == "Swift Reel" || app.localizedName == "Reel Pipeline") {
+                if app.isHidden { app.unhide() }
+                if #available(macOS 14.0, *) {
+                    app.activate()
+                } else {
+                    app.activate(options: [.activateIgnoringOtherApps])
+                }
+                break
+            }
+        }
+    }
+    exit(0)
+}
+
+// Lock acquired: write current PID to lock file
+ftruncate(lockFd, 0)
+lseek(lockFd, 0, SEEK_SET)
+let myPidStr = "\(ProcessInfo.processInfo.processIdentifier)\n"
+_ = myPidStr.withCString { ptr in
+    write(lockFd, ptr, strlen(ptr))
+}
 
 class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelegate, WKNavigationDelegate, WKDownloadDelegate {
     var window: NSWindow!
@@ -99,7 +155,25 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
         loadWhenReady()
 
         window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        if #available(macOS 14.0, *) {
+            NSApp.activate()
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        if let win = window, win.isMiniaturized {
+            win.deminiaturize(nil)
+        }
+        window?.makeKeyAndOrderFront(nil)
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag {
+            window?.makeKeyAndOrderFront(nil)
+        }
+        return true
     }
 
     // Handle HTML <input type="file"> click open panel
@@ -260,6 +334,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
         killTask.arguments = ["-f", "app.py"]
         try? killTask.run()
         killTask.waitUntilExit()
+
+        // Clean up lock file
+        close(lockFd)
+        unlink(lockPath)
     }
 }
 
