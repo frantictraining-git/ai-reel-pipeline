@@ -229,6 +229,15 @@ To ensure precision editing without gaps or micro-overlaps, the timeline impleme
 * **Visual Guide Line (`#tl-snap-guide`):**
   Renders an absolute-positioned vertical guide across all tracks at $x = \text{originX} + \text{round}\left(\frac{t_{\text{snap}}}{\text{totalDuration}} \times \text{trackWidth}\right)$ styled in cyan (`#38BDF8`) with glowing blur. Automatically hidden on `mouseup`.
 
+### 5.6. Isolated Shot Replacement & External Media Ingestion
+Replaces any individual timeline shot with external video footage without contaminating other shots or requiring pre-ingest into the media pool:
+* **Strict Single-Shot Scope:** Modifying `shotPlan[selectedShotIdx]` swaps only the chosen shot. Other timeline shots pointing to the same media library file maintain their pointers and in-points.
+* **External Path Resolution:** `shot.file_path` preserves the exact absolute path of the external file.
+* **Stream & Thumb Proxy:**
+  - Streaming endpoints (`/api/clip_preview`, `/api/clip_reversed`, `/api/clip_thumb`) inspect `request.args.get("file_path")` to stream external clips directly with macOS `VideoToolbox` hardware acceleration.
+* **Build Engine Integration (`build_reel.py`):**
+  - Timeline stitcher resolves `sp.get("file_path")` before `clip_by_name`, links the master into `clean_media`, and writes Resolve FCPXML / EDL with the external master file path.
+
 ---
 
 ## 6. Project Manifest Schema (`project.reelproj`)

@@ -44,20 +44,21 @@ Creating a viral, fast-cut, rhythm-matched reel takes under 3 minutes:
 
 ### Step 1: Analyze Your Reference Video
 1. Find any high-performing Instagram Reel, TikTok, or YouTube Short whose pacing and rhythm you admire.
-2. In the **Step 1: Reference Reel** box on the left, click **Choose Video File** and select your reference MP4 or MOV.
-3. Keep the **Cut Sensitivity** slider at the default `27.0` (or raise it if you want only hard cuts detected).
-4. Click **⚡ Analyze Rhythm**.
+2. In the **01 Reference Video** section on the left, click **🎬 Load Reference** and select your single reference MP4 or MOV.
+3. Keep the **Cut Sensitivity** slider at the default `20` (or raise it if you want only hard cuts detected).
+4. Click **Analyze Cuts**.
    - *What happens:* PySceneDetect scans the video frame-by-frame, finds every cut point, and builds an exact rhythm map showing the duration of every single beat.
 
-### Step 2: Select Your Footage & Smart-Match
-1. In **Step 2: Raw Footage**, click **📁 Select Local Folder** and pick the folder on your Mac SSD where your raw footage lives.
-2. *(Optional AI Power)* Check **Smart-Match by Content (CLIP AI)**.
+### Step 2: Ingest Footage & Smart-Match
+1. In **02 Media Library**, click **📁 Folder** to pick a folder on your Mac SSD, or click **+ Clips** to select specific video files.
+2. The **Media Library** expands to fill the entire sidebar height with high-density thumbnails. Toggle between **▦ Thumb** and **☰ List** views anytime.
+3. *(Optional AI Power)* Check **AI Smart-Match by Content (CLIP Vision)**.
    - Type category keywords that match your video (e.g. `food, kitchen, cocktail, exterior, person`).
-   - Click **🏷️ Tag Content**.
+   - Click **🤖 Tag Content with AI**.
    - *What happens:* OpenAI CLIP analyzes your footage and matches your shots to the rhythm map by visual subject matter rather than random alphabetical order!
 
 ### Step 3: Build the Reel
-1. Click **⚡ Build Reel**.
+1. Click **⚡ Build Reel & Timeline**.
 2. Within seconds, your reel is compiled, color-graded, reframed to 9:16 vertical, and loaded directly onto the interactive timeline for fine-tuning.
 
 ---
@@ -92,6 +93,12 @@ The timeline is designed to feel just like **DaVinci Resolve** and **Adobe Premi
 * Click any clip on the V1 track, then click **⏪ Reverse** on the toolbar (or press <kbd>R</kbd>).
 * The clip will instantly show a `⏪ REV` badge and play backwards in full original 4K/1080p resolution in the monitor!
 * *Non-destructive:* Your original camera file is never touched or overwritten.
+
+### Replacing Clips with External Media (`🔄`)
+* **Isolated Shot Replacement:** You can swap any individual shot on the timeline with an external video file from anywhere on your Mac SSD, even if it is not inside your media library folder.
+* **How to Replace:** Select the shot card on the timeline, then click **🔄 Replace** on the timeline toolbar (or click **🔄 Replace Clip...** in the Inspector, or press <kbd>⌥R</kbd>).
+* **Multi-Use Footage Protection:** If other shots in your timeline share the same original clip from your media library, replacing this shot will **never** alter those other shots. Only the active shot is swapped.
+* **Full Live Monitor & Bake Support:** The live monitor immediately loads and previews the new clip, and clicking **⚡ Build Reel (Bake Edits)** bakes the replacement footage into the final rendered reel.
 
 ### Deleting Layers & Clips (`🗑️`)
 The timeline features a smart, context-aware delete tool:
@@ -201,6 +208,7 @@ Have a camera card with 50+ mixed clips? Switch to the **Media Sorter** tab:
 | <kbd>Spacebar</kbd> | **Play / Pause** | Toggles sequence playback or active monitor preview |
 | <kbd>N</kbd> | **Magnet / Snapping** | Toggles magnetic snapping on/off across all timeline tracks |
 | <kbd>R</kbd> | **Reverse Clip** | Toggles reverse playback for the selected video shot |
+| <kbd>⌥R</kbd> | **Replace Clip** | Replaces the selected shot with an external video file |
 | <kbd>Delete</kbd> / <kbd>Backspace</kbd> | **Delete Layer** | Deletes the active text title, video shot, or audio track |
 | <kbd>⌘Z</kbd> | **Undo** | Reverts the last action (up to 10 steps back) |
 | <kbd>⇧⌘Z</kbd> / <kbd>⌘Y</kbd> | **Redo** | Redoes the previously undone action |

@@ -434,7 +434,17 @@ def build(
     if shot_plan and isinstance(shot_plan, list) and len(shot_plan) > 0:
         for idx, sp in enumerate(shot_plan):
             cname = sp.get("clip")
-            cpath = clip_by_name.get(cname) if cname else None
+            cpath = None
+            if sp.get("file_path") and Path(sp["file_path"]).is_file():
+                cpath = Path(sp["file_path"])
+            elif sp.get("source_path") and Path(sp["source_path"]).is_file():
+                cpath = Path(sp["source_path"])
+            elif cname and Path(cname).is_file():
+                cpath = Path(cname)
+            elif cname and (Path(output).parent / "custom_clips" / cname).is_file():
+                cpath = Path(output).parent / "custom_clips" / cname
+            elif cname:
+                cpath = clip_by_name.get(cname)
             if cpath is None:
                 cpath = clip_files[idx % len(clip_files)]
             dur = float(sp.get("duration", shots[idx % len(shots)]["duration"]))

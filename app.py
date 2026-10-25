@@ -233,6 +233,72 @@ def pick_local_folder():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/pick_local_file", methods=["POST"])
+def pick_local_file():
+    import subprocess
+    try:
+        script = '''
+        set frontApp to (path to frontmost application as text)
+        tell application frontApp
+            set myFile to choose file with prompt "Select a replacement video clip:" of type {"public.movie", "com.apple.quicktime-movie", "public.mpeg-4", "mov", "mp4", "m4v"}
+            return POSIX path of myFile
+        end tell
+        '''
+        result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
+        if result.returncode == 0:
+            file_path = result.stdout.strip()
+            p = Path(file_path)
+            if not p.is_file():
+                return jsonify({"error": "Selected file does not exist"}), 400
+            from build_reel import ffprobe_duration
+            dur = ffprobe_duration(p)
+            return jsonify({
+                "path": str(p),
+                "name": p.name,
+                "duration": dur,
+            })
+        else:
+            return jsonify({"error": "User cancelled"}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/upload_replacement_clip", methods=["POST"])
+def upload_replacement_clip():
+    """Upload or register an external replacement clip for a timeline shot."""
+    from werkzeug.utils import secure_filename
+    from build_reel import ffprobe_duration
+    job_id = request.form.get("job_id", "local")
+    jdir = job_dir(job_id) if job_id != "local" else Path("/tmp/reel_pipeline_temp")
+    jdir.mkdir(parents=True, exist_ok=True)
+    custom_dir = jdir / "custom_clips"
+    custom_dir.mkdir(parents=True, exist_ok=True)
+
+    file_path = request.form.get("file_path")
+    if file_path and Path(file_path).is_file():
+        p = Path(file_path)
+        dur = ffprobe_duration(p)
+        return jsonify({
+            "name": p.name,
+            "file_path": str(p),
+            "duration": dur,
+        })
+
+    f = request.files.get("file")
+    if f and f.filename:
+        fname = secure_filename(f.filename)
+        dest = custom_dir / fname
+        f.save(dest)
+        dur = ffprobe_duration(dest)
+        return jsonify({
+            "name": fname,
+            "file_path": str(dest),
+            "duration": dur,
+        })
+
+    return jsonify({"error": "No file provided"}), 400
+
+
 @app.route("/api/build", methods=["POST"])
 def api_build():
     job_id = request.form.get("job_id")
@@ -625,6 +691,10 @@ def api_clip_preview(job_id, clip_name):
     from urllib.parse import unquote
     clip_name = unquote(clip_name)
 
+    file_path = request.args.get("file_path") or request.args.get("path")
+    if file_path and Path(file_path).is_file():
+        return send_file(Path(file_path), conditional=True)
+
     folder_param = request.args.get("folder")
     if folder_param and Path(folder_param).is_dir():
         cand = Path(folder_param) / clip_name
@@ -633,15 +703,21 @@ def api_clip_preview(job_id, clip_name):
 
     if job_id != "local":
         jdir = job_dir(job_id)
+        cand = jdir / "custom_clips" / clip_name
+        if cand.exists():
+            return send_file(cand, conditional=True)
         saved_folder_file = jdir / "clips_folder.txt"
         if saved_folder_file.exists():
             folder = Path(saved_folder_file.read_text().strip())
-            target = folder / clip_name
-            if target.exists():
-                return send_file(target, conditional=True)
+            cand = folder / clip_name
+            if cand.exists():
+                return send_file(cand, conditional=True)
         target = jdir / "source_clips" / clip_name
         if target.exists():
             return send_file(target, conditional=True)
+    elif Path(clip_name).is_file():
+        return send_file(Path(clip_name), conditional=True)
+
     return jsonify({"error": "Clip not found"}), 404
 
 
@@ -656,25 +732,36 @@ def api_clip_reversed(job_id, clip_name):
     from ffmpeg_utils import FFMPEG
 
     clip_name = unquote(clip_name)
-    jdir = job_dir(job_id) if job_id != "local" else None
+    jdir = job_dir(job_id) if job_id != "local" else Path("/tmp/reel_pipeline_temp")
     target = None
 
+    file_path = request.args.get("file_path") or request.args.get("path")
+    if file_path and Path(file_path).is_file():
+        target = Path(file_path)
+
     folder_param = request.args.get("folder")
-    if folder_param and Path(folder_param).is_dir():
+    if target is None and folder_param and Path(folder_param).is_dir():
         cand = Path(folder_param) / clip_name
         if cand.exists():
             target = cand
 
     if target is None and jdir:
-        saved_folder_file = jdir / "clips_folder.txt"
-        if saved_folder_file.exists():
-            cand = Path(saved_folder_file.read_text().strip()) / clip_name
-            if cand.exists():
-                target = cand
+        cand = jdir / "custom_clips" / clip_name
+        if cand.exists():
+            target = cand
+        if target is None:
+            saved_folder_file = jdir / "clips_folder.txt"
+            if saved_folder_file.exists():
+                cand = Path(saved_folder_file.read_text().strip()) / clip_name
+                if cand.exists():
+                    target = cand
         if target is None:
             cand = jdir / "source_clips" / clip_name
             if cand.exists():
                 target = cand
+
+    if target is None and Path(clip_name).is_file():
+        target = Path(clip_name)
 
     if target is None:
         return jsonify({"error": "Clip not found"}), 404
@@ -746,18 +833,34 @@ def api_clip_reversed(job_id, clip_name):
 def api_clip_thumb(job_id, clip_name):
     import hashlib, subprocess
     from ffmpeg_utils import FFMPEG
-    jdir = job_dir(job_id)
+    from urllib.parse import unquote
+    clip_name = unquote(clip_name)
+    jdir = job_dir(job_id) if job_id != "local" else Path("/tmp/reel_pipeline_temp")
     target = None
-    saved_folder_file = jdir / "clips_folder.txt"
-    if saved_folder_file.exists():
-        folder = Path(saved_folder_file.read_text().strip())
-        cand = folder / clip_name
+
+    file_path = request.args.get("file_path") or request.args.get("path")
+    if file_path and Path(file_path).is_file():
+        target = Path(file_path)
+
+    if target is None and jdir:
+        cand = jdir / "custom_clips" / clip_name
         if cand.exists():
             target = cand
-    if target is None:
-        cand = jdir / "source_clips" / clip_name
-        if cand.exists():
-            target = cand
+        if target is None:
+            saved_folder_file = jdir / "clips_folder.txt"
+            if saved_folder_file.exists():
+                folder = Path(saved_folder_file.read_text().strip())
+                cand = folder / clip_name
+                if cand.exists():
+                    target = cand
+        if target is None:
+            cand = jdir / "source_clips" / clip_name
+            if cand.exists():
+                target = cand
+
+    if target is None and Path(clip_name).is_file():
+        target = Path(clip_name)
+
     if target is None:
         return jsonify({"error": "Clip not found"}), 404
 

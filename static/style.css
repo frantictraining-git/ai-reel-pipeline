@@ -2079,6 +2079,11 @@ input[type="range"]::-webkit-slider-thumb:active {
   font-size: 11px;
 }
 
+.btn-xs {
+  padding: 2px 7px;
+  font-size: 10px;
+}
+
 /* Hover State */
 .btn:hover:not(:disabled) {
   background: linear-gradient(180deg, #4E6A83 0%, #3b5268 100%);
@@ -2285,11 +2290,12 @@ input[type="range"]::-webkit-slider-thumb:active {
 }
 
 .clip-list {
-  margin-top: 8px;
+  margin-top: 6px;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-height: 210px;
+  flex: 1;
+  min-height: 220px;
   overflow-y: auto;
 }
 
@@ -2297,7 +2303,9 @@ input[type="range"]::-webkit-slider-thumb:active {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 6px;
-  max-height: 230px;
+  flex: 1;
+  min-height: 220px;
+  overflow-y: auto;
 }
 
 .clip-item {

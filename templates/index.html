@@ -307,38 +307,39 @@
         </div>
 
         <div class="dock-scroll">
-          <!-- PANEL 1: REFERENCE VIDEO -->
-          <section class="dock-panel" id="step1">
-            <div class="dock-panel-title">
+          <!-- PANEL 1: REFERENCE VIDEO (Compact, No giant dropzone, Strictly Single Video) -->
+          <section class="dock-panel" id="step1" style="flex-shrink:0;">
+            <div class="dock-panel-title" style="margin-bottom:6px;">
               <h3><span class="step-num">01</span> Reference Video</h3>
+              <span class="nle-badge" style="font-size:9.5px;">Single Video</span>
             </div>
 
-            <div class="dropzone" id="dz-reference">
-              <input type="file" id="input-reference" accept="video/*" hidden>
-              <div class="dz-icon">🎬</div>
-              <div class="dz-label">Drop reference reel or click to browse</div>
-              <div class="dz-filename" id="fn-reference"></div>
+            <!-- Single reference file input (strictly NO multiple) -->
+            <input type="file" id="input-reference" accept="video/*" hidden>
+            <div style="display:flex; gap:6px; align-items:center;">
+              <button type="button" id="btn-upload-ref" class="btn btn-secondary btn-sm" style="flex-shrink:0;" title="Select single reference video file">🎬 Load Reference</button>
+              <div class="dz-filename mono" id="fn-reference" style="flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:11px; color:var(--text); background:#1F2C38; padding:4px 8px; border-radius:3px; border:1px solid var(--border-dark);">No reference loaded</div>
             </div>
 
-            <div style="margin-top:10px; display:flex; flex-direction:column; gap:8px;">
-              <label class="slider-label" style="justify-content:space-between;">
-                <span>Cut Sensitivity</span>
+            <div style="margin-top:8px; display:flex; flex-direction:column; gap:6px;">
+              <label class="slider-label" style="justify-content:space-between; margin:0;">
+                <span style="font-size:11px;">Cut Sensitivity</span>
                 <input type="range" id="threshold" min="10" max="45" value="20" style="flex:1; margin:0 8px;">
                 <span class="mono" id="threshold-val">20</span>
               </label>
-              <div style="display:flex; gap:8px; align-items:center;">
-                <input type="text" id="job-name" class="mono tactile-input" placeholder="Job name (optional)" style="flex:1;">
-                <button id="btn-analyze" class="btn btn-primary" disabled>Analyze Cuts</button>
+              <div style="display:flex; gap:6px; align-items:center;">
+                <input type="text" id="job-name" class="mono tactile-input" placeholder="Job name (optional)" style="flex:1; font-size:11px; padding:4px 6px;">
+                <button id="btn-analyze" class="btn btn-primary btn-sm" disabled>Analyze Cuts</button>
               </div>
             </div>
 
             <div id="analyze-status" class="status hidden"></div>
 
-            <div id="rhythm-result" class="hidden" style="margin-top:10px;">
+            <div id="rhythm-result" class="hidden" style="margin-top:6px;">
               <div class="rhythm-strip" id="rhythm-strip"></div>
-              <details style="margin-top:8px;">
-                <summary style="font-size:11px; color:var(--text-dim); cursor:pointer;">View Detected Shot List</summary>
-                <div style="max-height:130px; overflow-y:auto; margin-top:6px;">
+              <details style="margin-top:4px;">
+                <summary style="font-size:10.5px; color:var(--text-dim); cursor:pointer;">View Detected Shot List</summary>
+                <div style="max-height:100px; overflow-y:auto; margin-top:4px;">
                   <table class="shot-table">
                     <thead><tr><th>Shot</th><th>In</th><th>Out</th><th>Dur</th></tr></thead>
                     <tbody id="shot-table-body"></tbody>
@@ -348,55 +349,58 @@
             </div>
           </section>
 
-          <!-- PANEL 2: MEDIA LIBRARY & AI SMART MATCH -->
-          <section class="dock-panel disabled" id="step2">
-            <div class="dock-panel-title" style="gap:6px; flex-wrap:wrap;">
-              <h3><span class="step-num">02</span> Media Library & Build</h3>
-              <div style="display:flex; align-items:center; gap:5px;">
-                <div class="view-toggle" id="media-view-toggle" title="Switch between List and Thumbnail view">
-                  <button type="button" class="view-btn active" data-view="thumb">▦ Thumb</button>
-                  <button type="button" class="view-btn" data-view="list">☰ List</button>
-                </div>
+          <!-- PANEL 2: MEDIA LIBRARY (Takes Maximum Vertical Space, No giant dropzone) -->
+          <section class="dock-panel disabled" id="step2" style="flex:1; min-height:0; display:flex; flex-direction:column;">
+            <div class="dock-panel-title" style="gap:6px; flex-wrap:wrap; margin-bottom:6px;">
+              <h3><span class="step-num">02</span> Media Library</h3>
+              <div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;">
+                <button type="button" id="btn-upload-clips" class="btn btn-secondary btn-sm" title="Upload video clips to media library">+ Clips</button>
                 <button id="btn-browse-folder" class="btn btn-secondary btn-sm" title="Pick a Mac folder of source footage">📁 Folder</button>
-                <button id="btn-relink-folder" class="btn btn-secondary btn-sm" title="Relink footage if your source folder was moved or renamed">🔗 Relink</button>
+                <button id="btn-relink-folder" class="btn btn-secondary btn-sm" title="Relink footage if source folder moved">🔗 Relink</button>
+                <div class="view-toggle" id="media-view-toggle" title="Switch between List and Thumbnail view">
+                  <button type="button" class="view-btn active" data-view="thumb">▦</button>
+                  <button type="button" class="view-btn" data-view="list">☰</button>
+                </div>
               </div>
             </div>
 
-            <div id="relink-banner" class="status error hidden" style="margin-bottom:8px;">
+            <div id="relink-banner" class="status error hidden" style="margin-bottom:6px;">
               ⚠️ Source footage folder moved or missing! Click <strong>🔗 Relink</strong> to point to its new location.
             </div>
 
-            <div class="dropzone" id="dz-clips">
-              <input type="file" id="input-clips" accept="video/*" multiple hidden>
-              <input type="file" id="input-clips-folder" accept="video/*" webkitdirectory directory multiple hidden>
-              <div class="dz-icon">＋</div>
-              <div class="dz-label">Drop footage clips or click to select files</div>
-              <div class="dz-filename" id="fn-clips"></div>
-            </div>
+            <!-- Hidden file inputs for clips -->
+            <input type="file" id="input-clips" accept="video/*" multiple hidden>
+            <input type="file" id="input-clips-folder" accept="video/*" webkitdirectory directory multiple hidden>
 
-            <div id="clip-list" class="clip-list thumb-grid"></div>
+            <!-- Sleek summary status bar -->
+            <div class="dz-filename mono" id="fn-clips" style="font-size:10.5px; color:var(--text-dim); margin-bottom:4px; padding:2px 4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">No footage clips loaded</div>
 
-            <!-- Smart Match Controls -->
-            <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
-              <label class="checkbox">
+            <!-- Media Library thumbnails expanding to fill maximum space -->
+            <div id="clip-list" class="clip-list thumb-grid" style="flex:1; min-height:180px; overflow-y:auto;"></div>
+
+            <!-- Smart Match Controls (Compact at bottom of Media Library) -->
+            <div style="margin-top:8px; padding-top:8px; border-top:1px solid var(--border); flex-shrink:0;">
+              <label class="checkbox" style="font-size:11px;">
                 <input type="checkbox" id="smart-match">
                 AI Smart-Match by Content (CLIP Vision)
               </label>
 
-              <div id="smart-match-options" style="display:none; flex-direction:column; gap:8px; margin-top:8px;">
-                <input type="text" id="categories" class="mono tactile-input" value="food,kitchen,interior,person" placeholder="Categories (comma-separated)" style="width:100%;">
-                <button id="btn-tag" class="btn btn-secondary" style="width:100%;">🤖 Tag Content with AI</button>
+              <div id="smart-match-options" style="display:none; flex-direction:column; gap:6px; margin-top:6px;">
+                <input type="text" id="categories" class="mono tactile-input" value="food,kitchen,interior,person" placeholder="Categories (comma-separated)" style="width:100%; font-size:11px; padding:4px 6px;">
+                <button id="btn-tag" class="btn btn-secondary btn-sm" style="width:100%;">🤖 Tag Content with AI</button>
               </div>
 
               <div id="tag-status" class="status hidden"></div>
             </div>
 
-            <!-- Audio Options + Build Button -->
-            <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border); display:flex; flex-direction:column; gap:8px;">
-              <label class="checkbox"><input type="checkbox" id="keep-audio"> Keep original clip audio</label>
-              <label class="checkbox"><input type="checkbox" id="overlay-audio" checked> Overlay reference audio track</label>
+            <!-- Audio Options + Build Button (Compact at bottom) -->
+            <div style="margin-top:8px; padding-top:8px; border-top:1px solid var(--border); display:flex; flex-direction:column; gap:6px; flex-shrink:0;">
+              <div style="display:flex; justify-content:space-between; gap:8px;">
+                <label class="checkbox" style="font-size:10.5px;"><input type="checkbox" id="keep-audio"> Clip audio</label>
+                <label class="checkbox" style="font-size:10.5px;"><input type="checkbox" id="overlay-audio" checked> Ref audio</label>
+              </div>
 
-              <button id="btn-build" class="btn btn-primary" disabled style="width:100%; margin-top:4px; padding:9px;">⚡ Build Reel & Timeline</button>
+              <button id="btn-build" class="btn btn-primary" disabled style="width:100%; padding:8px; font-weight:600;">⚡ Build Reel & Timeline</button>
             </div>
 
             <div id="build-status" class="status hidden"></div>
@@ -485,7 +489,10 @@
               <!-- SUBTAB 1: TRIM & REFRAME -->
               <div id="insp-pane-trim">
                 <div class="inspector-field">
-                  <label><span>Assigned Source Clip</span></label>
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                    <label style="margin:0;"><span>Assigned Source Clip</span></label>
+                    <button type="button" id="btn-insp-replace-clip" class="btn btn-secondary btn-xs" title="Replace this clip with any external video file on your computer">🔄 Replace Clip...</button>
+                  </div>
                   <div class="tactile-select-wrap">
                     <select id="insp-clip-select"></select>
                   </div>
@@ -838,6 +845,8 @@
             <button id="btn-move-right" class="btn btn-secondary btn-sm" disabled title="Move selected shot later">▶</button>
           </div>
           <button type="button" id="btn-tl-reverse" class="btn btn-secondary btn-sm" disabled title="Reverse the selected clip (R)">⏪ Reverse</button>
+          <input type="file" id="input-replace-clip" accept="video/*" hidden>
+          <button type="button" id="btn-tl-replace" class="btn btn-secondary btn-sm" disabled title="Replace selected shot with an external video file not in media library (⌥R)">🔄 Replace</button>
           <button type="button" id="btn-tl-delete" class="btn btn-secondary btn-sm" title="Delete selected layer or clip (⌫ Delete / Backspace)">🗑️ Delete</button>
           <button id="btn-rebuild-order" class="btn btn-primary btn-sm hidden" title="Renders your full reel baking all timeline trims, grades, reverse clips & reframes">⚡ Build Reel (Bake Edits)</button>
         </div>

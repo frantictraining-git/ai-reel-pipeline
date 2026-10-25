@@ -345,10 +345,17 @@ function resolveShotSourceUrl(shot) {
     const dur = Number(shot.duration || 1.0).toFixed(2);
     const jId = jobId || "local";
     let url = `/api/clip_reversed/${jId}/${encodeURIComponent(shot.clip)}?in=${inPt}&dur=${dur}`;
-    if (localFolderPath) {
+    if (shot.file_path) {
+      url += `&file_path=${encodeURIComponent(shot.file_path)}`;
+    } else if (localFolderPath) {
       url += `&folder=${encodeURIComponent(localFolderPath)}`;
     }
     return url;
+  }
+  if (shot._blobUrl) return shot._blobUrl;
+  if (shot.file_path) {
+    const jId = jobId || "local";
+    return `/api/clip_preview/${jId}/${encodeURIComponent(shot.clip)}?file_path=${encodeURIComponent(shot.file_path)}`;
   }
   return resolveClipSourceUrl(shot.clip);
 }
@@ -660,8 +667,8 @@ function wireDropzone(zoneEl, inputEl, multiple, onFiles) {
   });
 }
 
-// ---------- STEP 1: Analyze Reference ----------
-const dzReference = $("dz-reference");
+// ---------- STEP 1: Analyze Reference (Compact Single Video Selector) ----------
+const btnUploadRef = $("btn-upload-ref");
 const inputReference = $("input-reference");
 const fnReference = $("fn-reference");
 const thresholdSlider = $("threshold");
@@ -672,19 +679,53 @@ const rhythmResult = $("rhythm-result");
 const rhythmStrip = $("rhythm-strip");
 const shotTableBody = $("shot-table-body");
 
-wireDropzone(dzReference, inputReference, false, (files) => {
-  if (!files.length) return;
-  referenceFile = files[0];
-  fnReference.textContent = referenceFile.name;
-  btnAnalyze.disabled = false;
+function handleReferenceSelectedFile(file) {
+  if (!file) return;
+  referenceFile = file;
+  if (fnReference) {
+    fnReference.textContent = file.name;
+    fnReference.title = file.name;
+  }
+  if (btnAnalyze) btnAnalyze.disabled = false;
 
   try {
-    sourcePreview.src = URL.createObjectURL(referenceFile);
-    sourcePreview.setAttribute("data-clip", referenceFile.name);
+    sourcePreview.src = URL.createObjectURL(file);
+    sourcePreview.setAttribute("data-clip", file.name);
     sourcePreview.style.transform = "translate(0%, 0%) scale(1)";
     showMonitorTab("source");
   } catch (e) {}
-});
+}
+
+if (btnUploadRef && inputReference) {
+  btnUploadRef.addEventListener("click", () => {
+    inputReference.click();
+  });
+}
+
+if (inputReference) {
+  inputReference.addEventListener("change", () => {
+    if (inputReference.files && inputReference.files.length) {
+      handleReferenceSelectedFile(inputReference.files[0]);
+    }
+  });
+}
+
+const step1Panel = $("step1");
+if (step1Panel) {
+  step1Panel.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    step1Panel.style.borderColor = "var(--accent)";
+  });
+  step1Panel.addEventListener("dragleave", () => {
+    step1Panel.style.borderColor = "";
+  });
+  step1Panel.addEventListener("drop", (e) => {
+    e.preventDefault();
+    step1Panel.style.borderColor = "";
+    const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith("video/") || f.name.match(/\.(mp4|mov|m4v|mkv|avi|webm)$/i));
+    if (files.length) handleReferenceSelectedFile(files[0]);
+  });
+}
 
 thresholdSlider.addEventListener("input", () => {
   thresholdVal.textContent = thresholdSlider.value;
@@ -749,7 +790,7 @@ function renderRhythm(rhythm) {
 }
 
 // ---------- STEP 2: Media Library (Thumb & List Views) & Build ----------
-const dzClips = $("dz-clips");
+const btnUploadClips = $("btn-upload-clips");
 const fnClips = $("fn-clips");
 const inputClips = $("input-clips");
 const clipList = $("clip-list");
@@ -757,6 +798,57 @@ const btnBuild = $("btn-build");
 const buildStatus = $("build-status");
 const btnBrowseFolder = $("btn-browse-folder");
 const mediaViewToggle = $("media-view-toggle");
+
+if (btnUploadClips && inputClips) {
+  btnUploadClips.addEventListener("click", () => {
+    inputClips.click();
+  });
+}
+
+function handleIngestedClips(files) {
+  if (!files || !files.length) return;
+  const filtered = Array.from(files).filter((f) => f.type.startsWith("video/") || f.name.match(/\.(mp4|mov|m4v|mkv|avi|webm)$/i));
+  if (!filtered.length) {
+    alert("No video files found.");
+    return;
+  }
+  localFolderPath = null;
+  clipFiles = filtered.sort((a, b) => a.name.localeCompare(b.name));
+  localClipNames = clipFiles.map((f) => f.name);
+  availableClips = [...localClipNames];
+  shotPlan = [];
+  clearInterval(progressInterval);
+  markClipsChanged();
+  renderClipList();
+  if (fnClips) {
+    fnClips.innerText = `📁 ${clipFiles.length} clip(s) loaded`;
+    fnClips.title = `${clipFiles.length} uploaded files in media library`;
+  }
+  btnBuild.disabled = false;
+  initDraftTimelineFromRhythm();
+}
+
+if (inputClips) {
+  inputClips.addEventListener("change", () => {
+    handleIngestedClips(inputClips.files);
+  });
+}
+
+const step2Panel = $("step2");
+if (step2Panel) {
+  step2Panel.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    step2Panel.style.borderColor = "var(--accent)";
+  });
+  step2Panel.addEventListener("dragleave", () => {
+    step2Panel.style.borderColor = "";
+  });
+  step2Panel.addEventListener("drop", (e) => {
+    e.preventDefault();
+    step2Panel.style.borderColor = "";
+    handleIngestedClips(e.dataTransfer.files);
+  });
+}
 
 if (mediaViewToggle) {
   mediaViewToggle.addEventListener("click", (e) => {
@@ -770,26 +862,6 @@ if (mediaViewToggle) {
     renderClipList();
   });
 }
-
-wireDropzone(dzClips, inputClips, true, (files) => {
-  if (!files.length) return;
-  const filtered = files.filter((f) => f.type.startsWith("video/") || f.name.match(/\.(mp4|mov|m4v|mkv|avi|webm)$/i));
-  if (!filtered.length) {
-    alert("No video files found.");
-    return;
-  }
-  localFolderPath = null;
-  clipFiles = filtered.sort((a, b) => a.name.localeCompare(b.name));
-  localClipNames = clipFiles.map((f) => f.name);
-  availableClips = [...localClipNames];
-  shotPlan = [];
-  clearInterval(progressInterval);
-  markClipsChanged();
-  renderClipList();
-  fnClips.innerText = `${clipFiles.length} video clip(s) loaded`;
-  btnBuild.disabled = false;
-  initDraftTimelineFromRhythm();
-});
 
 btnBrowseFolder.addEventListener("click", async (e) => {
   e.preventDefault();
@@ -990,6 +1062,9 @@ const btnRedo = $("btn-redo");
 const btnMoveLeft = $("btn-move-left");
 const btnMoveRight = $("btn-move-right");
 const btnTlReverse = $("btn-tl-reverse");
+const btnTlReplace = $("btn-tl-replace");
+const btnInspReplaceClip = $("btn-insp-replace-clip");
+const inputReplaceClip = $("input-replace-clip");
 const btnTlDelete = $("btn-tl-delete");
 const btnTlMagnet = $("btn-tl-magnet");
 const tlSnapGuide = $("tl-snap-guide");
@@ -2700,7 +2775,13 @@ function renderTimelineTrack() {
     if (shot.reverse) card.classList.add("reversed");
 
     if (shot.clip && !shot.clip.includes("(awaiting clips)")) {
-      if (!localFolderPath && clipFiles.length) {
+      if (shot._blobThumb) {
+        card.style.backgroundImage = `url("${shot._blobThumb}")`;
+      } else if (shot.file_path) {
+        const jId = jobId || "local";
+        const thumbUrl = `/api/clip_thumb/${jId}/${encodeURIComponent(shot.clip)}?file_path=${encodeURIComponent(shot.file_path)}&t=${Number(shot.in_point || 0).toFixed(1)}`;
+        card.style.backgroundImage = `url("${thumbUrl}")`;
+      } else if (!localFolderPath && clipFiles.length) {
         const f = clipFiles.find((cf) => cf.name === shot.clip);
         if (f) {
           getClientThumb(f, shot.in_point || 0, (dataUrl) => {
@@ -3069,11 +3150,14 @@ function populateInspector() {
   if (inspShotBadge) inspShotBadge.textContent = `Shot #${String(selectedShotIdx + 1).padStart(2, "0")}`;
 
   inspClipSelect.innerHTML = "";
-  const pool = availableClips.length ? availableClips : [shot.clip];
+  const pool = availableClips.length ? [...availableClips] : [shot.clip];
+  if (shot.clip && !pool.includes(shot.clip)) {
+    pool.unshift(shot.clip);
+  }
   pool.forEach((cname) => {
     const opt = document.createElement("option");
     opt.value = cname;
-    opt.textContent = cname;
+    opt.textContent = (cname === shot.clip && shot.file_path) ? `⭐ ${cname} (Replaced)` : cname;
     if (cname === shot.clip) opt.selected = true;
     inspClipSelect.appendChild(opt);
   });
@@ -3128,6 +3212,97 @@ function toggleReverseSelectedClip() {
 
 if (btnTlReverse) btnTlReverse.addEventListener("click", toggleReverseSelectedClip);
 if (btnInspReverse) btnInspReverse.addEventListener("click", toggleReverseSelectedClip);
+
+// ---------- Replace Clip with External Media ----------
+async function replaceSelectedTimelineClip() {
+  if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) {
+    alert("Please click and select a video shot in the timeline first to replace its clip.");
+    return;
+  }
+
+  // Attempt native macOS file picker via /api/pick_local_file
+  try {
+    const res = await fetch("/api/pick_local_file", { method: "POST" });
+    const data = await res.json();
+    if (res.ok && data.path) {
+      applyClipReplacement(selectedShotIdx, data.name, data.path, data.duration);
+      return;
+    }
+    if (data.error === "User cancelled") {
+      return;
+    }
+  } catch (err) {
+    // If native picker fails or is on web browser, fallback to standard file input
+  }
+
+  if (inputReplaceClip) {
+    inputReplaceClip.value = "";
+    inputReplaceClip.click();
+  }
+}
+
+async function handleReplaceClipFileInput(e) {
+  if (!inputReplaceClip || !inputReplaceClip.files || !inputReplaceClip.files.length) return;
+  if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+
+  const file = inputReplaceClip.files[0];
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("job_id", jobId || "local");
+
+  try {
+    const res = await fetch("/api/upload_replacement_clip", { method: "POST", body: fd });
+    const data = await res.json();
+    if (res.ok && data.name) {
+      applyClipReplacement(selectedShotIdx, data.name, data.file_path, data.duration, file);
+    } else {
+      applyClipReplacement(selectedShotIdx, file.name, null, 20.0, file);
+    }
+  } catch (err) {
+    applyClipReplacement(selectedShotIdx, file.name, null, 20.0, file);
+  } finally {
+    inputReplaceClip.value = "";
+  }
+}
+
+function applyClipReplacement(shotIdx, clipName, filePath, clipDuration, browserFile = null) {
+  if (shotIdx < 0 || shotIdx >= shotPlan.length) return;
+  pushUndoState();
+  const shot = shotPlan[shotIdx];
+
+  // CRITICAL: ONLY update the selected shot. Other shots in timeline are untouched.
+  shot.clip = clipName;
+  shot.file_path = filePath || null;
+  shot.clip_duration = clipDuration ? Number(clipDuration) : (shot.clip_duration || 20.0);
+  shot.in_point = 0.0;
+  shot.reverse = false;
+
+  if (browserFile) {
+    shot._blobUrl = URL.createObjectURL(browserFile);
+    getClientThumb(browserFile, 0.0, (thumbData) => {
+      shot._blobThumb = thumbData;
+      renderTimelineTrack();
+    });
+  } else if (filePath) {
+    const jId = jobId || "local";
+    shot._blobThumb = `/api/clip_thumb/${jId}/${encodeURIComponent(clipName)}?file_path=${encodeURIComponent(filePath)}&t=0.0`;
+  }
+
+  renderTimelineTrack();
+  populateInspector();
+  previewSelectedShotInMonitor(false);
+  markTimelineDirty();
+  updateTimelineToolbarButtons();
+
+  const hintEl = $("tl-hint");
+  if (hintEl) {
+    hintEl.textContent = `🔄 Shot #${shotIdx + 1} replaced with "${clipName}". Other timeline clips untouched.`;
+  }
+}
+
+if (btnTlReplace) btnTlReplace.addEventListener("click", replaceSelectedTimelineClip);
+if (btnInspReplaceClip) btnInspReplaceClip.addEventListener("click", replaceSelectedTimelineClip);
+if (inputReplaceClip) inputReplaceClip.addEventListener("change", handleReplaceClipFileInput);
 
 function populateTextControls() {
   renderTextItemPills();
@@ -4731,7 +4906,18 @@ function deleteSelectedTimelineItem() {
   }
 }
 
+function updateTimelineToolbarButtons() {
+  updateTimelineDeleteButton();
+}
+
 function updateTimelineDeleteButton() {
+  const hasShot = lastSelectedTrackType === "shot" && selectedShotIdx >= 0 && selectedShotIdx < shotPlan.length;
+  if (btnTlReplace) {
+    btnTlReplace.disabled = !hasShot;
+  }
+  if (btnInspReplaceClip) {
+    btnInspReplaceClip.disabled = !hasShot;
+  }
   if (!btnTlDelete) return;
   if (lastSelectedTrackType === "text" && selectedTextTrackId) {
     btnTlDelete.disabled = false;
@@ -4894,6 +5080,12 @@ window.addEventListener("keydown", (e) => {
   if (!isTyping && !e.metaKey && !e.ctrlKey && !e.altKey && (e.key === "r" || e.key === "R")) {
     e.preventDefault();
     toggleReverseSelectedClip();
+    return;
+  }
+
+  if (!isTyping && e.altKey && !e.metaKey && !e.ctrlKey && (e.key === "r" || e.key === "R")) {
+    e.preventDefault();
+    replaceSelectedTimelineClip();
     return;
   }
 
