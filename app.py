@@ -482,6 +482,24 @@ def api_job_state(job_id):
     custom_audio_candidates = list(jdir.glob("custom_audio.*"))
     custom_audio_url = f"/api/media/{job_id}/{custom_audio_candidates[0].name}" if custom_audio_candidates else None
 
+    clip_profiles = {}
+    from build_reel import inspect_clip_color_profile
+    folder_dir = Path(local_folder) if local_folder and Path(local_folder).is_dir() else None
+    for cname in available_clips:
+        cand = None
+        if folder_dir and (folder_dir / cname).exists():
+            cand = folder_dir / cname
+        elif (jdir / "custom_clips" / cname).exists():
+            cand = jdir / "custom_clips" / cname
+        elif (jdir / "source_clips" / cname).exists():
+            cand = jdir / "source_clips" / cname
+        if cand and cand.is_file():
+            try:
+                info = inspect_clip_color_profile(cand)
+                clip_profiles[cname] = info.get("profile", "sdr")
+            except Exception:
+                clip_profiles[cname] = "sdr"
+
     return jsonify({
         "job_id": job_id,
         "job_name": job_name,
@@ -496,6 +514,7 @@ def api_job_state(job_id):
         "local_folder": local_folder,
         "folder_missing": folder_missing,
         "available_clips": available_clips,
+        "clip_profiles": clip_profiles,
         "tagged": (jdir / "clip_tags.json").exists(),
         "lut_name": lut_name,
         "custom_audio_name": custom_audio_name,

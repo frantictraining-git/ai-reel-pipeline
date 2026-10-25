@@ -1077,13 +1077,20 @@ body.nle-body {
   align-items: center;
   gap: 6px;
 }
-/* Live monitor grade layers (vignette + fade-to-black), driven by JS opacity */
+/* Live monitor grade layers (wb + vignette + fade-to-black), driven by JS opacity */
+.wb-preview-layer,
 .vignette-preview-layer,
 .fade-preview-layer {
   position: absolute;
   inset: 0;
   pointer-events: none;
   opacity: 0;
+}
+
+.wb-preview-layer {
+  z-index: 2;
+  mix-blend-mode: soft-light;
+  transition: opacity 0.05s ease, background-color 0.05s ease;
 }
 
 .vignette-preview-layer {

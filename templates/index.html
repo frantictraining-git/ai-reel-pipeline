@@ -467,14 +467,6 @@
           </div>
 
           <div id="source-preview-wrap" class="monitor-video-wrap hidden" style="flex-direction:column; gap:8px;">
-            <!-- SVG White Balance Filter (Resolve-style Warm Amber / Cool Blue Temperature + Green/Magenta Tint) -->
-            <svg width="0" height="0" style="position:absolute; pointer-events:none;" aria-hidden="true">
-              <defs>
-                <filter id="nle-wb-filter" color-interpolation-filters="sRGB">
-                  <feColorMatrix id="nle-wb-matrix" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 1 0" />
-                </filter>
-              </defs>
-            </svg>
             <div id="reframe-viewport" class="reframe-viewport" title="Drag with mouse to reposition clip or text">
               <!-- On-Screen Source Indicator -->
               <div class="monitor-source-badge-bar" id="monitor-source-badge-bar">
@@ -483,6 +475,8 @@
               <!-- Dual decks (Deck A & Deck B) for 0ms seamless cuts with zero black flash -->
               <video id="source-preview" class="seq-deck deck-active" playsinline></video>
               <video id="source-preview-b" class="seq-deck deck-standby" playsinline></video>
+              <!-- Real-Time Hardware-Accelerated Color Grading Layers -->
+              <div id="wb-preview-layer" class="wb-preview-layer"></div>
               <div id="vignette-preview-layer" class="vignette-preview-layer"></div>
               <div id="fade-preview-layer" class="fade-preview-layer"></div>
               <!-- Multiple Interactive Text Overlays Layer -->
@@ -586,9 +580,9 @@
 
               <!-- SUBTAB 2: COLOR GRADING, LEVELS, CURVES, LUT & FADE -->
               <div id="insp-pane-color" class="hidden">
-                <div id="insp-hdr-indicator" class="hidden" style="margin-bottom:8px; padding:4px 8px; background:rgba(245, 158, 11, 0.15); border:1px solid rgba(245, 158, 11, 0.45); border-radius:var(--radius); font-size:10px; font-weight:700; color:#F59E0B; display:flex; align-items:center; justify-content:space-between;">
-                  <span>☀️ 10-BIT HDR EDITING ACTIVE</span>
-                  <span style="font-size:9.5px; color:#FCD34D; font-weight:normal;">BT.2020 · HLG</span>
+                <div id="insp-hdr-indicator" style="margin-bottom:8px; padding:4px 8px; background:rgba(245, 158, 11, 0.15); border:1px solid rgba(245, 158, 11, 0.45); border-radius:var(--radius); font-size:10px; font-weight:700; color:#F59E0B; display:flex; align-items:center; justify-content:space-between;">
+                  <span id="insp-hdr-label">☀️ 10-BIT HDR EDITING ACTIVE</span>
+                  <span id="insp-hdr-profile-badge" style="font-size:9.5px; color:#FCD34D; font-weight:normal;">BT.2020 · HLG</span>
                 </div>
                 <div class="grade-grid">
                   <div class="grade-row">

@@ -177,10 +177,11 @@ function setProjectHdrMode(enabled) {
   if (exportHdr) {
     exportHdr.checked = projectHdrOutput;
   }
-  if (inspHdrIndicator) {
-    inspHdrIndicator.classList.toggle("hidden", !projectHdrOutput);
-  }
   updateProjectSettingsUI();
+  if (selectedShotIdx >= 0 && selectedShotIdx < shotPlan.length) {
+    populateInspector();
+  }
+  applyGradeFilterToPreview();
   markTimelineDirty();
 }
 
@@ -1358,6 +1359,29 @@ const btnApplyTimeline = $("btn-apply-timeline");
 
 // Grading Inspector DOM
 const vignettePreviewLayer = $("vignette-preview-layer");
+const wbPreviewLayer = $("wb-preview-layer");
+const inspHdrLabel = $("insp-hdr-label");
+const inspHdrProfileBadge = $("insp-hdr-profile-badge");
+let cachedClipProfiles = {};
+
+function getShotClipProfile(shot) {
+  if (!shot || !shot.clip) return "sdr";
+  const name = shot.clip;
+  if (cachedClipProfiles[name]) return cachedClipProfiles[name];
+  const lower = name.toLowerCase();
+  if (lower.includes("log") || lower.includes("flat") || (lower.startsWith("a001_") && (lower.includes("_c0") || lower.includes("pm_c")))) {
+    return "log_apple";
+  }
+  if (lower.includes("hlg") || lower.includes("dovi") || lower.startsWith("261003_") || lower.startsWith("img_")) {
+    return "hdr_hlg";
+  }
+  return "sdr";
+}
+
+function isShotClipLogProfile(shot) {
+  const prof = getShotClipProfile(shot);
+  return prof === "log_apple" || prof === "flat_wide";
+}
 const slGradeBrightness = $("sl-grade-brightness");
 const valGradeBrightness = $("val-grade-brightness");
 const slGradeContrast = $("sl-grade-contrast");
@@ -1512,41 +1536,93 @@ function applyGradeFilterToPreview() {
     if (sourcePreview) sourcePreview.style.filter = "none";
     if (sourcePreviewB) sourcePreviewB.style.filter = "none";
     if (vignettePreviewLayer) vignettePreviewLayer.style.opacity = "0";
+    if (wbPreviewLayer) wbPreviewLayer.style.opacity = "0";
     return;
   }
-  const g = ensureShotGrade(shotPlan[selectedShotIdx]);
-  const b = 1 + (Number(g.brightness || 0) / 100) + (Number(g.whites || 0) / 220) + (Number(g.blacks || 0) / 220);
-  let c = 1 + (Number(g.contrast || 0) / 85) + (Number(g.whites || 0) / 260) - (Number(g.blacks || 0) / 260);
-  if (g.curve === "medium_contrast") c *= 1.12;
-  else if (g.curve === "strong_contrast") c *= 1.25;
-  else if (g.curve === "lighter") c *= 0.95;
-  else if (g.curve === "darker") c *= 1.08;
-  const s = Math.max(0, 1 + Number(g.saturation || 0) / 100);
-  const temp = Number(g.temperature || 0);
-  const tint = Number(g.tint || 0);
+  const shot = shotPlan[selectedShotIdx];
+  const g = ensureShotGrade(shot);
 
-  // Resolve-style White Balance:
-  // Temperature (-100..+100): Cool Ice-Blue <-> Warm Golden Amber (R + slight G vs B)
-  // Tint (-100..+100): Green <-> Magenta (G vs R+B)
-  const tNorm = temp / 100.0;
-  const mNorm = tint / 100.0;
-  const rGain = Math.max(0.4, Math.min(1.8, 1.0 + 0.28 * tNorm + 0.16 * mNorm));
-  const gGain = Math.max(0.4, Math.min(1.8, 1.0 + 0.08 * tNorm - 0.22 * mNorm));
-  const bGain = Math.max(0.4, Math.min(1.8, 1.0 - 0.28 * tNorm + 0.16 * mNorm));
+  // Profile-aware base normalization for live monitor parity:
+  // Detect if shot clip is Apple Log / flat profile (e.g. from Blackmagic Cam)
+  const isLogClip = isShotClipLogProfile(shot);
 
-  const wbMatrixEl = document.getElementById("nle-wb-matrix");
-  const hasWb = Math.abs(temp) > 0.5 || Math.abs(tint) > 0.5;
-  if (wbMatrixEl) {
-    wbMatrixEl.setAttribute(
-      "values",
-      `${rGain.toFixed(4)} 0 0 0 0  0 ${gGain.toFixed(4)} 0 0 0  0 0 ${bGain.toFixed(4)} 0 0  0 0 0 1 0`
-    );
+  // Baseline normalization for flat log clips so they never look washed out:
+  let baseBrightness = 1.0;
+  let baseContrast = 1.0;
+  let baseSaturation = 1.0;
+
+  if (isLogClip) {
+    if (projectHdrOutput) {
+      // 10-bit HDR Master Mode: Log expanded into BT.2020 HLG headroom
+      baseBrightness = 0.98;
+      baseContrast = 1.52;
+      baseSaturation = 1.28;
+    } else {
+      // Standard SDR Mode: Log normalized to Rec.709
+      baseBrightness = 0.94;
+      baseContrast = 1.65;
+      baseSaturation = 1.34;
+    }
+  } else if (projectHdrOutput) {
+    // Non-log clips in HDR mode: subtle wide-gamut vibrancy & dynamic range lift
+    baseBrightness = 1.02;
+    baseContrast = 1.03;
+    baseSaturation = 1.06;
+  } else {
+    // Non-log clips in SDR mode: standard 1.0
+    baseBrightness = 1.0;
+    baseContrast = 1.0;
+    baseSaturation = 1.0;
   }
 
-  const wbFilterPart = hasWb && wbMatrixEl ? " url(#nle-wb-filter)" : "";
-  const filterStr = `brightness(${Math.max(0.2, b).toFixed(2)}) contrast(${Math.max(0.3, c).toFixed(2)}) saturate(${s.toFixed(2)})${wbFilterPart}`;
+  // Combine with user grading sliders:
+  const userB = (Number(g.brightness || 0) / 100) + (Number(g.whites || 0) / 220) + (Number(g.blacks || 0) / 220);
+  let userC = (Number(g.contrast || 0) / 85) + (Number(g.whites || 0) / 260) - (Number(g.blacks || 0) / 260);
+
+  if (g.curve === "medium_contrast") userC += 0.12;
+  else if (g.curve === "strong_contrast") userC += 0.25;
+  else if (g.curve === "lighter") userC -= 0.05;
+  else if (g.curve === "darker") userC += 0.08;
+
+  const userS = Number(g.saturation || 0) / 100;
+
+  const finalB = Math.max(0.2, baseBrightness + userB);
+  const finalC = Math.max(0.3, baseContrast + userC);
+  const finalS = Math.max(0.0, baseSaturation + userS);
+
+  // CSS Filter on <video>: Pure hardware-accelerated CSS (ZERO SVG filter dependencies)
+  // Guarantees 100% reliability in WebKit & Chromium without hardware layer dropouts!
+  const filterStr = `brightness(${finalB.toFixed(2)}) contrast(${finalC.toFixed(2)}) saturate(${finalS.toFixed(2)})`;
   if (sourcePreview) sourcePreview.style.filter = filterStr;
   if (sourcePreviewB) sourcePreviewB.style.filter = filterStr;
+
+  // Live White Balance & Tint via Hardware-Accelerated CSS Blend Layer (#wb-preview-layer)
+  const temp = Number(g.temperature || 0);
+  const tint = Number(g.tint || 0);
+  if (wbPreviewLayer) {
+    const absTemp = Math.abs(temp);
+    const absTint = Math.abs(tint);
+    const totalWb = absTemp + absTint;
+    if (totalWb > 0.5) {
+      let r = 128, gr = 128, b = 128;
+      if (temp > 0) { r += (255 - 128) * (temp / 100); gr += (160 - 128) * (temp / 100); b += (40 - 128) * (temp / 100); }
+      else if (temp < 0) { r += (40 - 128) * (-temp / 100); gr += (160 - 128) * (-temp / 100); b += (255 - 128) * (-temp / 100); }
+      if (tint > 0) { r += (240 - 128) * (tint / 100); gr += (50 - 128) * (tint / 100); b += (210 - 128) * (tint / 100); }
+      else if (tint < 0) { r += (30 - 128) * (-tint / 100); gr += (215 - 128) * (-tint / 100); b += (110 - 128) * (-tint / 100); }
+      
+      const rClamped = Math.max(0, Math.min(255, Math.round(r)));
+      const gClamped = Math.max(0, Math.min(255, Math.round(gr)));
+      const bClamped = Math.max(0, Math.min(255, Math.round(b)));
+      
+      const intensity = Math.min(0.55, (absTemp * 0.0045 + absTint * 0.0035));
+      wbPreviewLayer.style.backgroundColor = `rgb(${rClamped}, ${gClamped}, ${bClamped})`;
+      wbPreviewLayer.style.opacity = intensity.toFixed(2);
+    } else {
+      wbPreviewLayer.style.opacity = "0";
+    }
+  }
+
+  // Live Vignetting
   if (vignettePreviewLayer) {
     const vig = Math.max(0, Math.min(100, Number(g.vignette || 0)));
     vignettePreviewLayer.style.opacity = (vig / 100).toFixed(2);
@@ -3006,6 +3082,7 @@ function renderTimelineTrack() {
         markTimelineDirty();
         renderTimelineTrack();
         populateInspector();
+        previewSelectedShotInMonitor(false);
       }
     });
 
@@ -3305,6 +3382,30 @@ function populateInspector() {
 
   populateGradingControls(shot);
   populateTextControls();
+
+  const prof = getShotClipProfile(shot);
+  if (inspHdrIndicator) {
+    if (projectHdrOutput) {
+      inspHdrIndicator.style.background = "rgba(245, 158, 11, 0.15)";
+      inspHdrIndicator.style.borderColor = "rgba(245, 158, 11, 0.45)";
+      inspHdrIndicator.style.color = "#F59E0B";
+      if (inspHdrLabel) inspHdrLabel.textContent = "☀️ 10-BIT HDR EDITING ACTIVE";
+      if (inspHdrProfileBadge) {
+        inspHdrProfileBadge.textContent = prof === "log_apple" ? "🍏 APPLE LOG (DE-FLATTENED)" : prof === "hdr_hlg" ? "📱 IPHONE HLG HDR" : "REC.709 → BT.2020";
+        inspHdrProfileBadge.style.color = prof === "log_apple" ? "#34D399" : "#FCD34D";
+      }
+    } else {
+      inspHdrIndicator.style.background = "rgba(75, 85, 99, 0.25)";
+      inspHdrIndicator.style.borderColor = "rgba(107, 114, 128, 0.45)";
+      inspHdrIndicator.style.color = "#D1D5DB";
+      if (inspHdrLabel) inspHdrLabel.textContent = "STANDARD REC.709 SDR";
+      if (inspHdrProfileBadge) {
+        inspHdrProfileBadge.textContent = prof === "log_apple" ? "🍏 APPLE LOG (NORMALIZED)" : prof === "hdr_hlg" ? "📱 HLG TONEMAPPED" : "REC.709 SDR";
+        inspHdrProfileBadge.style.color = prof === "log_apple" ? "#34D399" : "#9CA3AF";
+      }
+    }
+  }
+
   applyReframeTransformToPreview();
   updateReverseControls();
 }
@@ -4709,6 +4810,9 @@ function hydrateEditorFromJobState(data) {
   if ($("job-id-display")) $("job-id-display").textContent = jobId;
   if (topJobInput) topJobInput.value = data.job_name || jobId;
   if ($("job-name")) $("job-name").value = data.job_name || "";
+  if (data.clip_profiles) {
+    cachedClipProfiles = Object.assign({}, cachedClipProfiles, data.clip_profiles);
+  }
 
   if (data.settings) {
     projectWidth = parseInt(data.settings.width, 10) || 1080;

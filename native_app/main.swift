@@ -273,7 +273,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelega
             let task = Process()
             task.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
             task.currentDirectoryURL = URL(fileURLWithPath: "/Users/threedwizard/Desktop/AI Agent/Digital Agency/AI Editor/reel_pipeline")
-            task.arguments = ["app.py"]
+            let appPyPath = "/Users/threedwizard/Desktop/AI Agent/Digital Agency/AI Editor/reel_pipeline/app.py"
+            task.arguments = [appPyPath]
             
             let logURL = URL(fileURLWithPath: "/tmp/reel_pipeline.log")
             if !FileManager.default.fileExists(atPath: logURL.path) {

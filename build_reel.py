@@ -266,19 +266,19 @@ def inspect_clip_color_profile(clip_path) -> dict:
         is_pq = ("smpte2084" in out)
         is_bt2020 = ("bt2020" in out)
         is_10bit = ("yuv420p10" in out or "yuv422p10" in out or "prores" in out)
-        is_apple_log = ("apple log" in out or "apple_log" in out or "applelog" in out)
+        is_apple_log = ("apple log" in out or "apple_log" in out or "applelog" in out or "blackmagic cam" in out or "lognote" in out)
         is_dovi = ("dovi" in out)
 
         profile = "sdr"
-        if is_apple_log:
+        if is_apple_log and not is_hlg:
+            profile = "log_apple"
+        elif is_bt2020 and is_10bit and not is_hlg and not is_pq:
+            # Wide gamut 10-bit log/flat profile (e.g. ProRes/HEVC from Blackmagic Cam / Apple Log)
             profile = "log_apple"
         elif is_hlg or (is_dovi and is_bt2020):
             profile = "hdr_hlg"
         elif is_pq:
             profile = "hdr_pq"
-        elif is_bt2020 and is_10bit and not is_hlg and not is_pq:
-            # Wide gamut 10-bit log or flat profile (e.g. ProRes from Blackmagic / Apple Log without explicit tag)
-            profile = "flat_wide"
         elif is_bt2020:
             profile = "hdr_hlg"
 
@@ -327,6 +327,10 @@ def get_clip_color_filter(clip_path, hdr_output: bool) -> str:
     info = inspect_clip_color_profile(clip_path)
     profile = info.get("profile", "sdr")
 
+    lut_dir = Path(__file__).parent / "luts"
+    lut_hlg = lut_dir / "apple_log_to_bt2020_hlg.cube"
+    lut_sdr = lut_dir / "apple_log_to_rec709.cube"
+
     if hdr_output:
         # EXPORTING IN 10-BIT HDR (BT.2020 HLG):
         if profile == "hdr_hlg":
@@ -337,9 +341,11 @@ def get_clip_color_filter(clip_path, hdr_output: bool) -> str:
             # Convert PQ (smpte2084) to HLG (arib-std-b67)
             return "zscale=tin=smpte2084:pin=bt2020:min=bt2020nc:t=arib-std-b67:p=bt2020:m=bt2020nc"
         elif profile in ("log_apple", "flat_wide"):
-            # Flat/Log profile: Keep wide gamut for 10-bit color grading/LUTs
-            # No HLG tonemap! Pass through to BT.2020 master
-            return ""
+            # Flat profile / Apple Log in an HDR project:
+            # Transform into BT.2020 HLG master using official Apple Log 3D LUT!
+            if lut_hlg.exists():
+                return f"lut3d=file='{lut_hlg.resolve()}'"
+            return "curves=all='0/0 0.2/0.05 0.5/0.38 0.8/0.75 1/1'"
         elif profile == "sdr":
             # Standard Rec.709 SDR in an HDR project:
             # Map SDR diffuse white into BT.2020 HLG (ITU-R BT.2408 standard)
@@ -363,7 +369,13 @@ def get_clip_color_filter(clip_path, hdr_output: bool) -> str:
                 "tonemap=hable:desat=0,"
                 "zscale=p=bt709:t=bt709:m=bt709:r=limited"
             )
-        # SDR and Flat/Log: DO NOT APPLY TONEMAP! Pass through uncorrupted!
+        elif profile in ("log_apple", "flat_wide"):
+            # Flat profile / Apple Log in an SDR project:
+            # Transform into Rec.709 using official Apple Log 3D LUT!
+            if lut_sdr.exists():
+                return f"lut3d=file='{lut_sdr.resolve()}'"
+            return "curves=all='0/0 0.2/0.04 0.5/0.35 0.8/0.78 1/1'"
+        # Standard SDR: Pass through 1:1
         return ""
 
 
