@@ -426,6 +426,14 @@
           </div>
 
           <div id="source-preview-wrap" class="monitor-video-wrap hidden" style="flex-direction:column; gap:8px;">
+            <!-- SVG White Balance Filter (Resolve-style Warm Amber / Cool Blue Temperature + Green/Magenta Tint) -->
+            <svg width="0" height="0" style="position:absolute; pointer-events:none;" aria-hidden="true">
+              <defs>
+                <filter id="nle-wb-filter" color-interpolation-filters="sRGB">
+                  <feColorMatrix id="nle-wb-matrix" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 1 0" />
+                </filter>
+              </defs>
+            </svg>
             <div id="reframe-viewport" class="reframe-viewport" title="Drag with mouse to reposition clip or text">
               <!-- Dual decks (Deck A & Deck B) for 0ms seamless cuts with zero black flash -->
               <video id="source-preview" class="seq-deck deck-active" playsinline></video>
@@ -497,6 +505,14 @@
                 <div class="inspector-field">
                   <label><span>Shot Duration (sec) — or drag clip edges [ ]</span></label>
                   <input type="number" id="insp-duration" min="0.15" step="0.05" value="1.0">
+                </div>
+
+                <div class="inspector-field">
+                  <label>
+                    <span>Playback Direction</span>
+                    <span class="mono" id="insp-reverse-state" style="color:var(--text-dim);">Forward</span>
+                  </label>
+                  <button type="button" id="btn-insp-reverse" class="btn btn-secondary btn-sm" style="width:100%;" title="Play this clip backwards (R)">⏪ Reverse Clip</button>
                 </div>
 
                 <div class="inspector-field">
@@ -824,6 +840,7 @@
             <button id="btn-move-left" class="btn btn-secondary btn-sm" disabled title="Move selected shot earlier">◀</button>
             <button id="btn-move-right" class="btn btn-secondary btn-sm" disabled title="Move selected shot later">▶</button>
           </div>
+          <button type="button" id="btn-tl-reverse" class="btn btn-secondary btn-sm" disabled title="Reverse the selected clip (R)">⏪ Reverse</button>
           <button id="btn-rebuild-order" class="btn btn-primary btn-sm hidden" title="Preview is live in real time — click to bake edits into the master file">💾 Bake Edits to Master File</button>
         </div>
       </div>

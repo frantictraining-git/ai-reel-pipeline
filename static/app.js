@@ -324,6 +324,28 @@ function syncLiveAudioVolume() {
   liveAudioPlayer.volume = Math.max(0, Math.min(1, (audioVolumePct || 100) / 100.0));
 }
 
+// ---------- Per-Clip Reverse Helpers ----------
+// Browsers can't play <video> backwards, so reversed shots preview from a
+// server-built proxy of just the trimmed window (time 0 = start of the shot).
+function isShotReversedPreview(shot) {
+  return Boolean(shot && shot.reverse && jobId && !(!localFolderPath && clipFiles.length));
+}
+
+function getShotDeckIn(shot) {
+  if (!shot) return 0;
+  return isShotReversedPreview(shot) ? 0 : Number(shot.in_point || 0);
+}
+
+function resolveShotSourceUrl(shot) {
+  if (!shot) return null;
+  if (isShotReversedPreview(shot) && shot.clip && !shot.clip.includes("(awaiting clips)")) {
+    const inPt = Number(shot.in_point || 0).toFixed(2);
+    const dur = Number(shot.duration || 1.0).toFixed(2);
+    return `/api/clip_reversed/${jobId}/${encodeURIComponent(shot.clip)}?in=${inPt}&dur=${dur}`;
+  }
+  return resolveClipSourceUrl(shot.clip);
+}
+
 function updateLiveFadeOverlay(currentClipTime, shot) {
   if (!fadePreviewLayer) return;
   if (!shot) {
@@ -331,7 +353,7 @@ function updateLiveFadeOverlay(currentClipTime, shot) {
     return;
   }
   const g = ensureShotGrade(shot);
-  const inPt = Number(shot.in_point || 0);
+  const inPt = getShotDeckIn(shot);
   const dur = Math.max(0.15, Number(shot.duration || 1.0));
   const elapsed = Math.max(0, currentClipTime - inPt);
   const fadeIn = Number(g.fade_in || 0);
@@ -388,7 +410,7 @@ function startSequencePlayback(startIdx = 0) {
 
   const curDeck = getVisibleVideoDeck();
   const currentShot = shotPlan[idx];
-  const inPt = Number(currentShot.in_point || 0);
+  const inPt = getShotDeckIn(currentShot);
   const outPt = inPt + Number(currentShot.duration || 1.0);
   let intraShotOffset = 0;
   if (curDeck && curDeck.currentTime >= inPt && curDeck.currentTime < outPt - 0.05) {
@@ -438,7 +460,7 @@ if (btnSeqPlay) {
         startAt = 0;
         const curDeck = getVisibleVideoDeck();
         if (curDeck && shotPlan[0]) {
-          curDeck.currentTime = Number(shotPlan[0].in_point || 0);
+          curDeck.currentTime = getShotDeckIn(shotPlan[0]);
         }
       }
       startSequencePlayback(startAt);
@@ -449,22 +471,27 @@ if (btnSeqPlay) {
 // Wire Tactile Source Player Transport Bar (Real-Time Trim Window + Multi-Shot Sequence Loop)
 if (btnSrcPlay) {
   btnSrcPlay.addEventListener("click", () => {
-    stopSequencePlayback();
     const vid = getVisibleVideoDeck();
     if (!vid) return;
+    // Capture play state BEFORE stopping the sequence (stopSequencePlayback pauses
+    // every deck, which previously made this toggle always resume playback).
+    const wasPlaying = isPlayingSequence || !vid.paused;
+    stopSequencePlayback();
+    if (wasPlaying) {
+      vid.pause();
+      return;
+    }
     vid.muted = false;
-    if (vid.paused) {
+    {
       if (selectedShotIdx >= 0 && selectedShotIdx < shotPlan.length) {
         const s = shotPlan[selectedShotIdx];
-        const inPt = Number(s.in_point || 0);
+        const inPt = getShotDeckIn(s);
         const outPt = inPt + Number(s.duration || 1.0);
         if (vid.currentTime < inPt || vid.currentTime >= outPt - 0.05) {
           vid.currentTime = inPt;
         }
       }
       vid.play().catch(() => {});
-    } else {
-      vid.pause();
     }
   });
 }
@@ -488,7 +515,7 @@ function setupVideoDeckListeners(vid) {
 
     if (selectedShotIdx >= 0 && selectedShotIdx < shotPlan.length) {
       const shot = shotPlan[selectedShotIdx];
-      const inPt = Number(shot.in_point || 0);
+      const inPt = getShotDeckIn(shot);
       const shotDur = Math.max(0.15, Number(shot.duration || 1.0));
       const outPt = inPt + shotDur;
 
@@ -532,7 +559,7 @@ function setupVideoDeckListeners(vid) {
     if (srcTimeReadout) {
       if (selectedShotIdx >= 0 && selectedShotIdx < shotPlan.length) {
         const s = shotPlan[selectedShotIdx];
-        const inPt = Number(s.in_point || 0);
+        const inPt = getShotDeckIn(s);
         const outPt = inPt + Number(s.duration || 0);
         srcTimeReadout.textContent = `${cur.toFixed(1)}s [${inPt.toFixed(1)}–${outPt.toFixed(1)}s]`;
       } else {
@@ -955,6 +982,9 @@ const btnUndo = $("btn-undo");
 const btnRedo = $("btn-redo");
 const btnMoveLeft = $("btn-move-left");
 const btnMoveRight = $("btn-move-right");
+const btnTlReverse = $("btn-tl-reverse");
+const btnInspReverse = $("btn-insp-reverse");
+const inspReverseState = $("insp-reverse-state");
 const btnRebuildOrder = $("btn-rebuild-order");
 
 // Audio Track DOM
@@ -1281,10 +1311,27 @@ function applyGradeFilterToPreview() {
   const s = Math.max(0, 1 + Number(g.saturation || 0) / 100);
   const temp = Number(g.temperature || 0);
   const tint = Number(g.tint || 0);
-  const sepia = Math.min(0.35, Math.abs(temp) / 260);
-  const hue = Math.round((temp * -0.15) + (tint * 0.25));
 
-  const filterStr = `brightness(${Math.max(0.2, b).toFixed(2)}) contrast(${Math.max(0.3, c).toFixed(2)}) saturate(${s.toFixed(2)}) sepia(${sepia.toFixed(2)}) hue-rotate(${hue}deg)`;
+  // Resolve-style White Balance:
+  // Temperature (-100..+100): Cool Ice-Blue <-> Warm Golden Amber (R + slight G vs B)
+  // Tint (-100..+100): Green <-> Magenta (G vs R+B)
+  const tNorm = temp / 100.0;
+  const mNorm = tint / 100.0;
+  const rGain = Math.max(0.4, Math.min(1.8, 1.0 + 0.28 * tNorm + 0.16 * mNorm));
+  const gGain = Math.max(0.4, Math.min(1.8, 1.0 + 0.08 * tNorm - 0.22 * mNorm));
+  const bGain = Math.max(0.4, Math.min(1.8, 1.0 - 0.28 * tNorm + 0.16 * mNorm));
+
+  const wbMatrixEl = document.getElementById("nle-wb-matrix");
+  const hasWb = Math.abs(temp) > 0.5 || Math.abs(tint) > 0.5;
+  if (wbMatrixEl) {
+    wbMatrixEl.setAttribute(
+      "values",
+      `${rGain.toFixed(4)} 0 0 0 0  0 ${gGain.toFixed(4)} 0 0 0  0 0 ${bGain.toFixed(4)} 0 0  0 0 0 1 0`
+    );
+  }
+
+  const wbFilterPart = hasWb && wbMatrixEl ? " url(#nle-wb-filter)" : "";
+  const filterStr = `brightness(${Math.max(0.2, b).toFixed(2)}) contrast(${Math.max(0.3, c).toFixed(2)}) saturate(${s.toFixed(2)})${wbFilterPart}`;
   if (sourcePreview) sourcePreview.style.filter = filterStr;
   if (sourcePreviewB) sourcePreviewB.style.filter = filterStr;
   if (vignettePreviewLayer) {
@@ -1300,7 +1347,7 @@ function getCurrentSequenceTime() {
     offset += Number(shotPlan[i].duration || 0);
   }
   const vid = getVisibleVideoDeck();
-  const inPt = Number(shotPlan[selectedShotIdx].in_point || 0);
+  const inPt = getShotDeckIn(shotPlan[selectedShotIdx]);
   const cur = vid ? Math.max(inPt, vid.currentTime) : inPt;
   return Math.max(0, offset + (cur - inPt));
 }
@@ -1392,7 +1439,7 @@ function seekSequenceToTime(targetTimeSec) {
 
   const shot = shotPlan[targetIdx];
   if (!shot) return;
-  const inPt = Number(shot.in_point || 0);
+  const inPt = getShotDeckIn(shot);
   const targetVideoTime = inPt + intraShotOffset;
 
   // 3. Switch shot / video deck if different shot
@@ -2118,7 +2165,7 @@ function resolveClipSourceUrl(clipName) {
 function preloadNextShotIntoStandby(nextShotIdx) {
   if (nextShotIdx < 0 || nextShotIdx >= shotPlan.length || !sourcePreviewB) return;
   const nextShot = shotPlan[nextShotIdx];
-  const targetSrc = resolveClipSourceUrl(nextShot.clip);
+  const targetSrc = resolveShotSourceUrl(nextShot);
   if (!targetSrc) return;
 
   const standby = getStandbyVideoDeck();
@@ -2127,7 +2174,7 @@ function preloadNextShotIntoStandby(nextShotIdx) {
     standby.setAttribute("data-clip", nextShot.clip);
   }
   standby.muted = true;
-  const seekTo = Number(nextShot.in_point || 0);
+  const seekTo = getShotDeckIn(nextShot);
   const applySeek = () => {
     try {
       standby.currentTime = seekTo;
@@ -2143,7 +2190,7 @@ function preloadNextShotIntoStandby(nextShotIdx) {
 function previewSelectedShotInMonitor(autoPlay = true, useDeckSwitch = false, customSeekTime = null) {
   if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
   const shot = shotPlan[selectedShotIdx];
-  const targetSrc = resolveClipSourceUrl(shot.clip);
+  const targetSrc = resolveShotSourceUrl(shot);
   if (!targetSrc) return;
 
   const keepOrigAudio = $("keep-audio") && $("keep-audio").checked;
@@ -2167,7 +2214,7 @@ function previewSelectedShotInMonitor(autoPlay = true, useDeckSwitch = false, cu
 
   const seekTo = (customSeekTime !== null && customSeekTime !== undefined)
     ? Number(customSeekTime)
-    : Number(shot.in_point || 0);
+    : getShotDeckIn(shot);
   activeVideo.muted = isPlayingSequence ? Boolean(aUrl && !keepOrigAudio) : false;
 
   const applySeekAndPlay = () => {
@@ -2366,9 +2413,11 @@ function renderTimelineTrack() {
       (g.curve && g.curve !== "none") || g.fade_in > 0 || g.fade_out > 0;
     const hasText = texts.some((tx) => Boolean((tx.content || "").trim()));
     const gradeDot = (hasGrade ? " 🎨" : "") + (hasText ? " 🔤" : "");
+    const revBadge = shot.reverse ? `<span class="tl-rev-badge" title="Reversed clip">⏪ REV</span>` : "";
     const tagBadge = shot.tag
-      ? `<span class="tl-shot-tag">${shot.tag}${gradeDot}</span>`
-      : `<span class="tl-shot-tag">${zoomNum}%${gradeDot}</span>`;
+      ? `<span class="tl-shot-tag">${shot.tag}${gradeDot}${revBadge}</span>`
+      : `<span class="tl-shot-tag">${zoomNum}%${gradeDot}${revBadge}</span>`;
+    if (shot.reverse) card.classList.add("reversed");
 
     if (shot.clip && !shot.clip.includes("(awaiting clips)")) {
       if (!localFolderPath && clipFiles.length) {
@@ -2468,6 +2517,7 @@ function renderTimelineTrack() {
 
   btnMoveLeft.disabled = selectedShotIdx <= 0;
   btnMoveRight.disabled = selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length - 1;
+  updateReverseControls();
 }
 
 // ---------- A1 Audio Track Controls (Add Audio, Drag Left/Right to Trim Start & Length, Volume) ----------
@@ -2599,7 +2649,7 @@ function selectShot(idx) {
   selectedShotIdx = idx;
   renderTimelineTrack();
   populateInspector();
-  previewSelectedShotInMonitor(true);
+  previewSelectedShotInMonitor(false);
 }
 
 function populateGradingControls(shot) {
@@ -2679,7 +2729,46 @@ function populateInspector() {
   populateGradingControls(shot);
   populateTextControls();
   applyReframeTransformToPreview();
+  updateReverseControls();
 }
+
+// ---------- Per-Clip Reverse Toggle ----------
+function updateReverseControls() {
+  const hasSel = selectedShotIdx >= 0 && selectedShotIdx < shotPlan.length;
+  const on = hasSel && Boolean(shotPlan[selectedShotIdx].reverse);
+  if (btnTlReverse) {
+    btnTlReverse.disabled = !hasSel;
+    btnTlReverse.classList.toggle("reverse-on", on);
+  }
+  if (btnInspReverse) {
+    btnInspReverse.classList.toggle("reverse-on", on);
+    btnInspReverse.textContent = on ? "⏪ Reversed — click to play forward" : "⏪ Reverse Clip";
+  }
+  if (inspReverseState) {
+    inspReverseState.textContent = on ? "Reversed" : "Forward";
+    inspReverseState.style.color = on ? "var(--accent)" : "var(--text-dim)";
+  }
+}
+
+function toggleReverseSelectedClip() {
+  if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+  const shot = shotPlan[selectedShotIdx];
+  if (!shot.clip || shot.clip.includes("(awaiting clips)")) return;
+  pushUndoState();
+  stopSequencePlayback();
+  shot.reverse = !shot.reverse;
+  markTimelineDirty();
+  renderTimelineTrack();
+  updateReverseControls();
+  previewSelectedShotInMonitor(false);
+  if (shot.reverse && !isShotReversedPreview(shot)) {
+    const hintEl = $("tl-hint");
+    if (hintEl) hintEl.textContent = "⏪ Reverse will be applied on render (live reverse preview needs a saved job).";
+  }
+}
+
+if (btnTlReverse) btnTlReverse.addEventListener("click", toggleReverseSelectedClip);
+if (btnInspReverse) btnInspReverse.addEventListener("click", toggleReverseSelectedClip);
 
 function populateTextControls() {
   renderTextItemPills();
@@ -4379,6 +4468,12 @@ window.addEventListener("keydown", (e) => {
     if (btnSeqPlay) {
       btnSeqPlay.click();
     }
+    return;
+  }
+
+  if (!isTyping && !e.metaKey && !e.ctrlKey && !e.altKey && (e.key === "r" || e.key === "R")) {
+    e.preventDefault();
+    toggleReverseSelectedClip();
     return;
   }
 

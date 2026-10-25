@@ -635,6 +635,67 @@ def api_clip_preview(job_id, clip_name):
     return jsonify({"error": "Clip not found"}), 404
 
 
+@app.route("/api/clip_reversed/<job_id>/<path:clip_name>")
+def api_clip_reversed(job_id, clip_name):
+    """Serve a cached, lightweight reversed proxy of the trimmed [in, in+dur]
+    window so the live monitor can preview reversed clips (browsers can't
+    play <video> backwards natively). Final render reverses at full quality."""
+    import hashlib
+    from ffmpeg_utils import FFMPEG
+    jdir = job_dir(job_id)
+    target = None
+    saved_folder_file = jdir / "clips_folder.txt"
+    if saved_folder_file.exists():
+        cand = Path(saved_folder_file.read_text().strip()) / clip_name
+        if cand.exists():
+            target = cand
+    if target is None:
+        cand = jdir / "source_clips" / clip_name
+        if cand.exists():
+            target = cand
+    if target is None:
+        return jsonify({"error": "Clip not found"}), 404
+
+    try:
+        t_in = max(0.0, float(request.args.get("in", 0.0)))
+        dur = max(0.1, min(60.0, float(request.args.get("dur", 1.0))))
+    except ValueError:
+        return jsonify({"error": "Bad params"}), 400
+
+    cache_dir = jdir / "reversed_cache"
+    cache_dir.mkdir(exist_ok=True)
+    key = hashlib.md5(f"{clip_name}_{t_in:.2f}_{dur:.2f}".encode("utf-8")).hexdigest()[:14]
+    out_path = cache_dir / f"rev_{key}.mp4"
+
+    if not out_path.exists():
+        tmp_path = cache_dir / f"rev_{key}.tmp.mp4"
+        cmd = [
+            FFMPEG, "-y",
+            "-ss", f"{t_in:.3f}",
+            "-i", str(target),
+            "-t", f"{dur:.3f}",
+            "-vf", "scale=-2:'min(720,ih)',reverse",
+            "-af", "areverse",
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
+            "-pix_fmt", "yuv420p", "-g", "12",
+            "-c:a", "aac", "-b:a", "128k",
+            "-movflags", "+faststart",
+            "-loglevel", "error",
+            str(tmp_path),
+        ]
+        res = subprocess.run(cmd, check=False)
+        if res.returncode != 0 or not tmp_path.exists():
+            # Retry without audio (clip may have no audio stream)
+            cmd = [c for c in cmd if c not in ("-af", "areverse", "-c:a", "aac", "-b:a", "128k")] 
+            cmd.insert(cmd.index("-loglevel"), "-an")
+            subprocess.run(cmd, check=False)
+        if not tmp_path.exists():
+            return jsonify({"error": "Failed to build reversed preview"}), 500
+        tmp_path.replace(out_path)
+
+    return send_file(out_path, conditional=True, mimetype="video/mp4")
+
+
 @app.route("/api/clip_thumb/<job_id>/<path:clip_name>")
 def api_clip_thumb(job_id, clip_name):
     import hashlib, subprocess

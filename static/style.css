@@ -962,6 +962,48 @@ body.nle-body {
   align-items: center;
   gap: 6px;
 }
+/* Live monitor grade layers (vignette + fade-to-black), driven by JS opacity */
+.vignette-preview-layer,
+.fade-preview-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.vignette-preview-layer {
+  z-index: 3;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 38%, rgba(0, 0, 0, 0.55) 72%, rgba(0, 0, 0, 0.92) 100%);
+}
+
+.fade-preview-layer {
+  z-index: 3;
+  background: #000;
+}
+
+/* Reverse clip states */
+.btn.reverse-on {
+  background: linear-gradient(180deg, #38BDF8 0%, #0284C7 100%) !important;
+  border-color: #38BDF8 !important;
+  color: #E7EDF2 !important;
+}
+
+.tl-shot-card.reversed {
+  border-color: #38BDF8;
+}
+
+.tl-rev-badge {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  font-weight: 700;
+  color: #E7EDF2;
+  background: rgba(2, 132, 199, 0.85);
+  border: 1px solid #38BDF8;
+  border-radius: 3px;
+  padding: 0 4px;
+  margin-left: 4px;
+}
+
 .text-preview-container {
   position: absolute;
   inset: 0;

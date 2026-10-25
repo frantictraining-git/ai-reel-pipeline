@@ -266,13 +266,15 @@ def build_grade_filter(grade: dict, shot_dur: float, lut_path: str = None) -> st
     if abs(b) > 0.005 or abs(c - 1.0) > 0.005 or abs(s - 1.0) > 0.005:
         parts.append(f"eq=brightness={b:.3f}:contrast={c:.3f}:saturation={s:.3f}")
 
-    # 3. Temperature (-100..100) & Tint (-100..100) via colorbalance
-    temp = float(grade.get("temperature", 0.0)) / 200.0
-    tint = -float(grade.get("tint", 0.0)) / 200.0
-    if abs(temp) > 0.005 or abs(tint) > 0.005:
+    # 3. Temperature (-100..100, Cool Blue <-> Warm Amber) & Tint (-100..100, Green <-> Magenta)
+    t_norm = float(grade.get("temperature", 0.0)) / 100.0
+    m_norm = float(grade.get("tint", 0.0)) / 100.0
+    if abs(t_norm) > 0.005 or abs(m_norm) > 0.005:
+        r_gain = max(0.4, min(1.8, 1.0 + 0.28 * t_norm + 0.16 * m_norm))
+        g_gain = max(0.4, min(1.8, 1.0 + 0.08 * t_norm - 0.22 * m_norm))
+        b_gain = max(0.4, min(1.8, 1.0 - 0.28 * t_norm + 0.16 * m_norm))
         parts.append(
-            f"colorbalance=rm={temp:.3f}:gm={tint:.3f}:bm={-temp:.3f}:"
-            f"rh={temp*0.6:.3f}:gh={tint*0.6:.3f}:bh={-temp*0.6:.3f}"
+            f"colorchannelmixer=rr={r_gain:.4f}:gg={g_gain:.4f}:bb={b_gain:.4f}"
         )
 
     # 4. Levels: Whites (-50..50) & Blacks (-50..50)
@@ -302,7 +304,9 @@ def build_grade_filter(grade: dict, shot_dur: float, lut_path: str = None) -> st
     # 6. Vignette (0..100)
     vig = float(grade.get("vignette", 0.0))
     if vig > 1.0:
-        angle = min(1.0, vig / 100.0) * 0.785
+        # Map 0..100 -> angle 0.15..1.25 rad (ffmpeg default PI/5≈0.63) so the
+        # slider has a clearly visible range that matches the live monitor preview.
+        angle = 0.15 + min(1.0, vig / 100.0) * 1.10
         parts.append(f"vignette=angle={angle:.4f}")
 
     # 7. Fade In & Fade Out (seconds)
@@ -458,6 +462,7 @@ def build(
                 "text": stext,
                 "texts": stexts,
                 "tag": stag,
+                "reverse": bool(sp.get("reverse", False)),
             })
     else:
         for i, shot in enumerate(shots):
@@ -540,6 +545,7 @@ def build(
             "text": item.get("text") or {},
             "texts": item.get("texts") or [],
             "tag": item.get("tag"),
+            "reverse": bool(item.get("reverse", False)),
         })
 
         seg_out = tmpdir / f"seg_{i:03d}.mp4"
@@ -563,6 +569,12 @@ def build(
             )
         else:
             vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1,fps={fps}"
+
+        is_reversed = bool(item.get("reverse", False))
+        if is_reversed:
+            # Trim to the exact used window BEFORE reversing, so the selected
+            # [in_point, in_point + use_duration] segment plays backwards.
+            vf = f"trim=duration={use_duration:.3f},setpts=PTS-STARTPTS,reverse," + vf
 
         grade_vf = build_grade_filter(item.get("grade"), duration, lut_path=lut_path)
         if grade_vf:
@@ -628,6 +640,8 @@ def build(
                 "-pix_fmt", "yuv420p",
             ]
         if keep_audio:
+            if is_reversed:
+                cmd += ["-af", f"atrim=duration={use_duration:.3f},asetpts=PTS-STARTPTS,areverse"]
             cmd += ["-c:a", "aac", "-b:a", "192k"]
         else:
             cmd += ["-an"]
@@ -671,6 +685,7 @@ def build(
             "text": s.get("text") or {},
             "texts": s.get("texts") or [],
             "tag": s["tag"],
+            "reverse": bool(s.get("reverse", False)),
         }
         for s in shot_log
     ]
