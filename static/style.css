@@ -1696,12 +1696,18 @@ input[type="range"]::-webkit-slider-thumb:active {
   background: linear-gradient(180deg, #6d589e 0%, #4f3d79 100%);
 }
 
+.tl-text-clip.dragging {
+  opacity: 0.92;
+  box-shadow: 0 4px 16px rgba(56, 189, 248, 0.5);
+  cursor: grabbing !important;
+}
+
 .tl-text-clip .tl-trim-handle {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 14px;
-  background: rgba(231, 237, 242, 0.12);
+  width: 16px;
+  background: rgba(231, 237, 242, 0.14);
   color: #E7EDF2;
   display: flex;
   align-items: center;
@@ -1711,38 +1717,41 @@ input[type="range"]::-webkit-slider-thumb:active {
   font-weight: 700;
   cursor: col-resize;
   user-select: none;
+  touch-action: none;
   z-index: 5;
   transition: background 0.12s, color 0.12s;
 }
 
-.tl-text-clip .tl-trim-handle:hover {
-  background: #38bdf8;
-  color: #0F161C;
+.tl-text-clip .tl-trim-handle:hover,
+.tl-text-clip .tl-trim-handle.active-trim {
+  background: #38bdf8 !important;
+  color: #0F161C !important;
 }
 
 .tl-text-clip .tl-trim-handle.left {
   left: 0;
   border-top-left-radius: 3px;
   border-bottom-left-radius: 3px;
-  border-right: 1px solid rgba(255, 255, 255, 0.18);
+  border-right: 1px solid rgba(255, 255, 255, 0.22);
 }
 
 .tl-text-clip .tl-trim-handle.right {
   right: 0;
   border-top-right-radius: 3px;
   border-bottom-right-radius: 3px;
-  border-left: 1px solid rgba(255, 255, 255, 0.18);
+  border-left: 1px solid rgba(255, 255, 255, 0.22);
 }
 
 .tl-text-body {
-  margin: 0 16px;
+  margin: 0 18px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  width: calc(100% - 32px);
+  width: calc(100% - 36px);
   gap: 6px;
   overflow: hidden;
   white-space: nowrap;
+  pointer-events: none;
 }
 
 .tl-text-title {

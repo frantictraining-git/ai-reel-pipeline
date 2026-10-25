@@ -1444,13 +1444,13 @@ function renderTextTrack() {
   tlTextStrip.innerHTML = "";
 
   const totalDur = shotPlan.reduce((acc, s) => acc + Number(s.duration || 0), 0) || 10.0;
-  const trackWidth = tlRulerStrip ? Math.max(480, tlRulerStrip.getBoundingClientRect().width) : 800;
+  const trackWidth = tlRulerStrip && tlRulerStrip.style.width ? Math.max(480, parseFloat(tlRulerStrip.style.width)) : (tlRulerStrip ? Math.max(480, tlRulerStrip.getBoundingClientRect().width) : 800);
   tlTextStrip.style.width = `${trackWidth}px`;
 
   if (!textTrackItems.length) {
     tlTextStrip.innerHTML = `
       <div style="color:var(--text-dim); font-size:11px; display:flex; align-items:center; padding-left:10px; height:100%; pointer-events:none;">
-        Click ➕ Add on the left to place a text title overlay on the timeline · Double-click to add.
+        Click ➕ Add on the left to place a text title overlay on the timeline · Drag to position or trim.
       </div>
     `;
     return;
@@ -1462,7 +1462,7 @@ function renderTextTrack() {
     const durSec = Math.max(0.2, Number(item.duration || 2.5));
 
     const leftPx = Math.round((startSec / totalDur) * trackWidth);
-    const widthPx = Math.max(50, Math.round((durSec / totalDur) * trackWidth));
+    const widthPx = Math.max(46, Math.round((durSec / totalDur) * trackWidth));
 
     const isSelected = item.id === selectedTextTrackId;
     const card = document.createElement("div");
@@ -1474,12 +1474,12 @@ function renderTextTrack() {
     const titleText = (item.content || "").trim().slice(0, 24) || `Title #${idx + 1}`;
 
     card.innerHTML = `
-      <div class="tl-trim-handle left" title="Drag left/right to trim In-Point">[</div>
+      <div class="tl-trim-handle left" title="Drag to trim start In-Point [">[</div>
       <div class="tl-text-body">
         <span class="tl-text-title">🔤 ${titleText}</span>
-        <span class="tl-text-meta">${durSec.toFixed(1)}s</span>
+        <span class="tl-text-meta mono">${durSec.toFixed(1)}s</span>
       </div>
-      <div class="tl-trim-handle right" title="Drag left/right to trim Out-Point / Duration">]</div>
+      <div class="tl-trim-handle right" title="Drag to trim duration / length ]">]</div>
     `;
 
     // Click to select
@@ -1498,7 +1498,7 @@ function renderTextTrack() {
       }
     });
 
-    // Left Handle Trim
+    // Left Handle Trim [
     const leftHandle = card.querySelector(".tl-trim-handle.left");
     if (leftHandle) {
       leftHandle.addEventListener("mousedown", (e) => {
@@ -1506,6 +1506,7 @@ function renderTextTrack() {
         e.preventDefault();
         pushUndoState();
         selectTextTrackItem(item.id);
+        const curTrackW = parseFloat(tlTextStrip.style.width) || tlTextStrip.getBoundingClientRect().width || trackWidth;
         activeTextTrim = {
           id: item.id,
           side: "left",
@@ -1513,14 +1514,17 @@ function renderTextTrack() {
           origStart: startSec,
           origDur: durSec,
           cardEl: card,
+          handleEl: leftHandle,
           metaEl: card.querySelector(".tl-text-meta"),
           totalDur,
-          trackWidth,
+          trackWidth: curTrackW,
         };
+        leftHandle.classList.add("active-trim");
+        document.body.style.cursor = "col-resize";
       });
     }
 
-    // Right Handle Trim
+    // Right Handle Trim ]
     const rightHandle = card.querySelector(".tl-trim-handle.right");
     if (rightHandle) {
       rightHandle.addEventListener("mousedown", (e) => {
@@ -1528,6 +1532,7 @@ function renderTextTrack() {
         e.preventDefault();
         pushUndoState();
         selectTextTrackItem(item.id);
+        const curTrackW = parseFloat(tlTextStrip.style.width) || tlTextStrip.getBoundingClientRect().width || trackWidth;
         activeTextTrim = {
           id: item.id,
           side: "right",
@@ -1535,38 +1540,148 @@ function renderTextTrack() {
           origStart: startSec,
           origDur: durSec,
           cardEl: card,
+          handleEl: rightHandle,
           metaEl: card.querySelector(".tl-text-meta"),
           totalDur,
-          trackWidth,
+          trackWidth: curTrackW,
         };
+        rightHandle.classList.add("active-trim");
+        document.body.style.cursor = "col-resize";
       });
     }
 
-    // Body Drag (Move in time)
-    const bodyEl = card.querySelector(".tl-text-body");
-    if (bodyEl) {
-      bodyEl.addEventListener("mousedown", (e) => {
-        if (e.button !== 0) return;
-        e.stopPropagation();
-        e.preventDefault();
-        pushUndoState();
-        selectTextTrackItem(item.id);
-        activeTextMove = {
-          id: item.id,
-          startX: e.clientX,
-          origStart: startSec,
-          dur: durSec,
-          cardEl: card,
-          metaEl: card.querySelector(".tl-text-meta"),
-          totalDur,
-          trackWidth,
-        };
-      });
-    }
+    // Card Body Drag (Slide in time to position when it will appear)
+    card.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      if (e.target.closest(".tl-trim-handle")) return; // Let handles trim
+      e.stopPropagation();
+      e.preventDefault();
+      pushUndoState();
+      selectTextTrackItem(item.id);
+      const curTrackW = parseFloat(tlTextStrip.style.width) || tlTextStrip.getBoundingClientRect().width || trackWidth;
+      activeTextMove = {
+        id: item.id,
+        startX: e.clientX,
+        origStart: startSec,
+        dur: durSec,
+        cardEl: card,
+        metaEl: card.querySelector(".tl-text-meta"),
+        totalDur,
+        trackWidth: curTrackW,
+      };
+      card.classList.add("dragging");
+      document.body.style.cursor = "grabbing";
+    });
 
     tlTextStrip.appendChild(card);
   });
 }
+
+// Global Mouse Listeners for Timeline Text Dragging & Edge Trimming
+window.addEventListener("mousemove", (e) => {
+  if (activeTextTrim) {
+    const { id, side, startX, origStart, origDur, cardEl, metaEl, totalDur, trackWidth } = activeTextTrim;
+    const item = textTrackItems.find((t) => t.id === id);
+    if (!item) return;
+
+    const dxPx = e.clientX - startX;
+    const deltaSec = (dxPx / trackWidth) * totalDur;
+
+    if (side === "left") {
+      // Dragging left handle '[' moves In-Point in time, right edge stays fixed at (origStart + origDur)
+      const fixedEnd = origStart + origDur;
+      const minDur = 0.2;
+      const newStart = Math.max(0, Math.min(fixedEnd - minDur, origStart + deltaSec));
+      const newDur = Math.max(minDur, fixedEnd - newStart);
+      item.start_time = Number(newStart.toFixed(2));
+      item.duration = Number(newDur.toFixed(2));
+    } else {
+      // Dragging right handle ']' reduces/increases length in timeline, left edge stays fixed at origStart
+      const minDur = 0.2;
+      const maxDur = Math.max(minDur, totalDur - origStart);
+      const newDur = Math.max(minDur, Math.min(maxDur, origDur + deltaSec));
+      item.duration = Number(newDur.toFixed(2));
+    }
+
+    // Direct pixel styling during drag for 60fps butter-smooth rendering
+    const leftPx = Math.round((item.start_time / totalDur) * trackWidth);
+    const widthPx = Math.max(40, Math.round((item.duration / totalDur) * trackWidth));
+    if (cardEl) {
+      cardEl.style.left = `${leftPx}px`;
+      cardEl.style.width = `${widthPx}px`;
+    }
+    if (metaEl) {
+      metaEl.textContent = `${item.duration.toFixed(1)}s`;
+    }
+
+    // Live update inspector timing inputs
+    if (numTxtStart && document.activeElement !== numTxtStart) {
+      numTxtStart.value = item.start_time.toFixed(2);
+    }
+    if (numTxtDur && document.activeElement !== numTxtDur) {
+      numTxtDur.value = item.duration.toFixed(2);
+    }
+
+    // Live update preview monitor overlay
+    applyTimelineTextOverlayToPreview(item.start_time);
+    markTimelineDirty();
+    return;
+  }
+
+  if (activeTextMove) {
+    const { id, startX, origStart, dur, cardEl, metaEl, totalDur, trackWidth } = activeTextMove;
+    const item = textTrackItems.find((t) => t.id === id);
+    if (!item) return;
+
+    const dxPx = e.clientX - startX;
+    const deltaSec = (dxPx / trackWidth) * totalDur;
+    const maxStart = Math.max(0, totalDur - dur);
+    const newStart = Math.max(0, Math.min(maxStart, origStart + deltaSec));
+    item.start_time = Number(newStart.toFixed(2));
+
+    // Direct pixel styling during slide
+    const leftPx = Math.round((item.start_time / totalDur) * trackWidth);
+    if (cardEl) {
+      cardEl.style.left = `${leftPx}px`;
+    }
+
+    // Live update inspector timing inputs
+    if (numTxtStart && document.activeElement !== numTxtStart) {
+      numTxtStart.value = item.start_time.toFixed(2);
+    }
+
+    // Live update preview monitor overlay
+    applyTimelineTextOverlayToPreview(item.start_time);
+    markTimelineDirty();
+    return;
+  }
+});
+
+window.addEventListener("mouseup", () => {
+  if (activeTextTrim) {
+    const item = textTrackItems.find((t) => t.id === activeTextTrim.id);
+    if (activeTextTrim.handleEl) {
+      activeTextTrim.handleEl.classList.remove("active-trim");
+    }
+    document.body.style.cursor = "";
+    activeTextTrim = null;
+    renderTextTrack();
+    populateTextControls();
+    if (item) applyTimelineTextOverlayToPreview(item.start_time);
+  }
+
+  if (activeTextMove) {
+    const item = textTrackItems.find((t) => t.id === activeTextMove.id);
+    if (activeTextMove.cardEl) {
+      activeTextMove.cardEl.classList.remove("dragging");
+    }
+    document.body.style.cursor = "";
+    activeTextMove = null;
+    renderTextTrack();
+    populateTextControls();
+    if (item) applyTimelineTextOverlayToPreview(item.start_time);
+  }
+});
 
 function selectTextTrackItem(id) {
   selectedTextTrackId = id;
@@ -2125,6 +2240,7 @@ function renderTimelineTrack() {
   });
 
   renderTimecodeRuler(cumulativeWidth, totalDur);
+  renderTextTrack();
 
   btnMoveLeft.disabled = selectedShotIdx <= 0;
   btnMoveRight.disabled = selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length - 1;
