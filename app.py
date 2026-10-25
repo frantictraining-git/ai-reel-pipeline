@@ -10,6 +10,7 @@ on your machine — nothing you upload here leaves your computer.
 
 import json
 import shutil
+import subprocess
 import uuid
 from pathlib import Path
 
@@ -907,8 +908,8 @@ def api_job_thumb(job_id):
             subprocess.run(cmd, capture_output=True, check=True)
             if thumb_path.exists():
                 return send_file(thumb_path, mimetype="image/jpeg")
-        except Exception:
-            pass
+        except Exception as err:
+            print(f"[job_thumb] extraction error for {job_id}: {err}")
 
     svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="480" height="270" viewBox="0 0 480 270">
       <defs>
