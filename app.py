@@ -384,6 +384,10 @@ def api_build():
 
     output_path = jdir / "built_reel.mp4"
     try:
+        import importlib
+        import build_reel
+        importlib.reload(build_reel)
+        from build_reel import build
         ref_matches = list(jdir.glob("reference.*"))
         ref_path = str(ref_matches[0]) if ref_matches else None
         plan_out = build(
@@ -483,6 +487,9 @@ def api_job_state(job_id):
     custom_audio_url = f"/api/media/{job_id}/{custom_audio_candidates[0].name}" if custom_audio_candidates else None
 
     clip_profiles = {}
+    import importlib
+    import build_reel
+    importlib.reload(build_reel)
     from build_reel import inspect_clip_color_profile
     folder_dir = Path(local_folder) if local_folder and Path(local_folder).is_dir() else None
     for cname in available_clips:

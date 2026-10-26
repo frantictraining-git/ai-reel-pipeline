@@ -269,18 +269,17 @@ def inspect_clip_color_profile(clip_path) -> dict:
         is_apple_log = ("apple log" in out or "apple_log" in out or "applelog" in out or "blackmagic cam" in out or "lognote" in out)
         is_dovi = ("dovi" in out)
 
+        lower_name = Path(c_str).name.lower()
+        is_bm_cam = ("blackmagic" in out or lower_name.startswith("a001_"))
+
         profile = "sdr"
-        if is_apple_log and not is_hlg:
+        if is_apple_log or is_bm_cam or "flat" in lower_name or "log" in lower_name:
+            # Blackmagic Cam Apple Log / flat profile
             profile = "log_apple"
-        elif is_bt2020 and is_10bit and not is_hlg and not is_pq:
-            # Wide gamut 10-bit log/flat profile (e.g. ProRes/HEVC from Blackmagic Cam / Apple Log)
-            profile = "log_apple"
-        elif is_hlg or (is_dovi and is_bt2020):
+        elif is_hlg or (is_dovi and is_bt2020) or (is_bt2020 and is_10bit):
             profile = "hdr_hlg"
         elif is_pq:
             profile = "hdr_pq"
-        elif is_bt2020:
-            profile = "hdr_hlg"
 
         info = {
             "profile": profile,
@@ -305,157 +304,202 @@ def inspect_clip_color_profile(clip_path) -> dict:
         return fallback
 
 
+def resolve_clip_file(cname, clip_files, custom_clips_dir=None):
+    """Robustly resolve clip filename matching exact name, normalized spaces/underscores, or stems."""
+    if not cname:
+        return None
+    p_cname = Path(cname)
+    if p_cname.is_file():
+        return p_cname
+    if custom_clips_dir and (Path(custom_clips_dir) / p_cname.name).is_file():
+        return Path(custom_clips_dir) / p_cname.name
+
+    norm_target = re.sub(r'[\s\u202f\u00a0_]+', '_', p_cname.name).lower()
+    for f in clip_files:
+        if f.name == p_cname.name:
+            return f
+        norm_f = re.sub(r'[\s\u202f\u00a0_]+', '_', f.name).lower()
+        if norm_f == norm_target or Path(norm_f).stem == Path(norm_target).stem:
+            return f
+    return None
+
+
+def compute_shot_grade_params(grade: dict, clip_path: Path, hdr_output: bool) -> tuple:
+    """Compute exact final_b, final_c, final_s, temp, tint matching static/app.js 1:1."""
+    g = grade or {}
+
+    prof = g.get("profile")
+    if not prof:
+        lower_name = clip_path.name.lower()
+        if "log" in lower_name or "flat" in lower_name or lower_name.startswith("a001_"):
+            prof = "log_apple"
+        elif "hlg" in lower_name or "dovi" in lower_name or lower_name.startswith("261003_") or lower_name.startswith("img_"):
+            prof = "hdr_hlg"
+        else:
+            info = inspect_clip_color_profile(clip_path)
+            prof = info.get("profile", "sdr")
+
+    is_log = (prof in ("log_apple", "flat_wide"))
+
+    if is_log:
+        if hdr_output:
+            base_b, base_c, base_s = 0.98, 1.52, 1.28
+        else:
+            base_b, base_c, base_s = 0.94, 1.65, 1.34
+    elif hdr_output:
+        base_b, base_c, base_s = 1.05, 1.08, 1.12
+    else:
+        base_b, base_c, base_s = 1.0, 1.0, 1.0
+
+    user_b = (float(g.get("brightness", 0.0)) / 100.0) + (float(g.get("whites", 0.0)) / 220.0) + (float(g.get("blacks", 0.0)) / 220.0)
+    user_c = (float(g.get("contrast", 0.0)) / 85.0) + (float(g.get("whites", 0.0)) / 260.0) - (float(g.get("blacks", 0.0)) / 260.0)
+
+    curve = str(g.get("curve") or "none").strip()
+    if curve == "medium_contrast":
+        user_c += 0.12
+    elif curve == "strong_contrast":
+        user_c += 0.25
+    elif curve == "lighter":
+        user_c -= 0.05
+    elif curve == "darker":
+        user_c += 0.08
+
+    user_s = float(g.get("saturation", 0.0)) / 100.0
+
+    final_b = max(0.2, base_b + user_b)
+    final_c = max(0.3, base_c + user_c)
+    final_s = max(0.0, base_s + user_s)
+
+    temp = float(g.get("temperature", 0.0))
+    tint = float(g.get("tint", 0.0))
+
+    return final_b, final_c, final_s, temp, tint, prof
+
+
+def generate_unified_css_lut(lut_path: Path, final_b: float, final_c: float, final_s: float, temp: float = 0.0, tint: float = 0.0, size: int = 33):
+    """Generate an Adobe 3D LUT (.cube) executing the exact W3C CSS filter math from the live monitor."""
+    import numpy as np
+
+    vals = np.linspace(0.0, 1.0, size, dtype=np.float32)
+    b_grid, g_grid, r_grid = np.meshgrid(vals, vals, vals, indexing='ij')
+
+    r = r_grid.copy()
+    g = g_grid.copy()
+    b = b_grid.copy()
+
+    # 1. CSS brightness(B)
+    r *= final_b
+    g *= final_b
+    b *= final_b
+
+    # 2. CSS contrast(C)
+    r = (r - 0.5) * final_c + 0.5
+    g = (g - 0.5) * final_c + 0.5
+    b = (b - 0.5) * final_c + 0.5
+
+    # 3. CSS saturate(S) via ITU-R BT.709 luma weights
+    luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    r = luma + (r - luma) * final_s
+    g = luma + (g - luma) * final_s
+    b = luma + (b - luma) * final_s
+
+    # 4. CSS White Balance & Tint overlay (mix-blend-mode: soft-light)
+    abs_temp = abs(temp)
+    abs_tint = abs(tint)
+    total_wb = abs_temp + abs_tint
+    if total_wb > 0.5:
+        r_t, g_t, b_t = 128.0, 128.0, 128.0
+        if temp > 0:
+            r_t += (255.0 - 128.0) * (temp / 100.0)
+            g_t += (160.0 - 128.0) * (temp / 100.0)
+            b_t += (40.0 - 128.0) * (temp / 100.0)
+        elif temp < 0:
+            r_t += (40.0 - 128.0) * (-temp / 100.0)
+            g_t += (160.0 - 128.0) * (-temp / 100.0)
+            b_t += (255.0 - 128.0) * (-temp / 100.0)
+
+        if tint > 0:
+            r_t += (240.0 - 128.0) * (tint / 100.0)
+            g_t += (50.0 - 128.0) * (tint / 100.0)
+            b_t += (210.0 - 128.0) * (tint / 100.0)
+        elif tint < 0:
+            r_t += (30.0 - 128.0) * (-tint / 100.0)
+            g_t += (215.0 - 128.0) * (-tint / 100.0)
+            b_t += (110.0 - 128.0) * (-tint / 100.0)
+
+        cs_r = max(0.0, min(1.0, r_t / 255.0))
+        cs_g = max(0.0, min(1.0, g_t / 255.0))
+        cs_b = max(0.0, min(1.0, b_t / 255.0))
+
+        def softlight(cb, cs):
+            if cs <= 0.5:
+                return cb - (1.0 - 2.0 * cs) * cb * (1.0 - cb)
+            else:
+                d = np.where(cb <= 0.25, ((16.0 * cb - 12.0) * cb + 4.0) * cb, np.sqrt(np.maximum(0.0, cb)))
+                return cb + (2.0 * cs - 1.0) * (d - cb)
+
+        intensity = min(0.55, abs_temp * 0.0045 + abs_tint * 0.0035)
+        blend_r = softlight(np.clip(r, 0.0, 1.0), cs_r)
+        blend_g = softlight(np.clip(g, 0.0, 1.0), cs_g)
+        blend_b = softlight(np.clip(b, 0.0, 1.0), cs_b)
+
+        r = (1.0 - intensity) * r + intensity * blend_r
+        g = (1.0 - intensity) * g + intensity * blend_g
+        b = (1.0 - intensity) * b + intensity * blend_b
+
+    r = np.clip(r, 0.0, 1.0)
+    g = np.clip(g, 0.0, 1.0)
+    b = np.clip(b, 0.0, 1.0)
+
+    table = np.stack([r.ravel(), g.ravel(), b.ravel()], axis=-1)
+
+    header = (
+        'TITLE "Unified CSS Matched Grade"\n'
+        f'LUT_3D_SIZE {size}\n'
+        'DOMAIN_MIN 0.0 0.0 0.0\n'
+        'DOMAIN_MAX 1.0 1.0 1.0\n'
+    )
+    lines = [f"{x[0]:.6f} {x[1]:.6f} {x[2]:.6f}" for x in table]
+    lut_path.write_text(header + "\n".join(lines) + "\n")
+
+
 def get_clip_color_filter(clip_path, hdr_output: bool) -> str:
-    """Intelligently adapt color pipeline based on clip's real color profile and user's HDR/SDR target.
-
-    Supports:
-      - Default iPhone Camera HDR (10-bit HLG / Dolby Vision Profile 8.4)
-      - Flat profile / Apple Log from Blackmagic Camera app & iPhone 15/16 Pro ProRes
-      - Standard Rec.709 SDR from mirrorless/DSLR
-      - HDR10 / PQ
-
-    When HDR output is selected:
-      - All footages export in true 10-bit HDR (BT.2020 HLG).
-      - HLG footage passes through in native 10-bit HDR without destructive tonemapping.
-      - SDR footages are mapped cleanly into BT.2020 HLG at ITU-R BT.2408 reference white.
-      - Log / Flat profiles preserve their wide gamut without HLG tonemap distortion.
-
-    When SDR output is selected:
-      - Only true HLG/PQ HDR footage is tonemapped to Rec.709 to prevent highlight blowout.
-      - SDR and Flat/Log footages pass through uncorrupted.
-    """
+    """Return tone-mapping filter if needed (e.g. iPhone HLG to SDR)."""
     info = inspect_clip_color_profile(clip_path)
     profile = info.get("profile", "sdr")
-
-    lut_dir = Path(__file__).parent / "luts"
-    lut_hlg = lut_dir / "apple_log_to_bt2020_hlg.cube"
-    lut_sdr = lut_dir / "apple_log_to_rec709.cube"
-
-    if hdr_output:
-        # EXPORTING IN 10-BIT HDR (BT.2020 HLG):
-        if profile == "hdr_hlg":
-            # Native iPhone HDR HLG: Already in BT.2020 HLG!
-            # Pass through 100% native extended dynamic range (no tonemapping)
-            return ""
-        elif profile == "hdr_pq":
-            # Convert PQ (smpte2084) to HLG (arib-std-b67)
-            return "zscale=tin=smpte2084:pin=bt2020:min=bt2020nc:t=arib-std-b67:p=bt2020:m=bt2020nc"
-        elif profile in ("log_apple", "flat_wide"):
-            # Flat profile / Apple Log in an HDR project:
-            # Transform into BT.2020 HLG master using official Apple Log 3D LUT!
-            if lut_hlg.exists():
-                return f"lut3d=file='{lut_hlg.resolve()}'"
-            return "curves=all='0/0 0.2/0.05 0.5/0.38 0.8/0.75 1/1'"
-        elif profile == "sdr":
-            # Standard Rec.709 SDR in an HDR project:
-            # Map SDR diffuse white into BT.2020 HLG (ITU-R BT.2408 standard)
-            # so standard clips don't look dimmed or discolored next to HDR clips
-            return "zscale=tin=bt709:pin=bt709:min=bt709:t=arib-std-b67:p=bt2020:m=bt2020nc"
-    else:
-        # EXPORTING IN SDR (Rec.709):
-        if profile == "hdr_hlg":
-            # Only iPhone HLG gets HLG-to-SDR tonemap so highlights roll off gracefully
-            return (
-                "zscale=tin=arib-std-b67:pin=bt2020:min=bt2020nc,"
-                "zscale=t=linear:npl=200,"
-                "tonemap=hable:desat=0,"
-                "zscale=p=bt709:t=bt709:m=bt709:r=limited"
-            )
-        elif profile == "hdr_pq":
-            # PQ to SDR tonemap
-            return (
-                "zscale=tin=smpte2084:pin=bt2020:min=bt2020nc,"
-                "zscale=t=linear:npl=100,"
-                "tonemap=hable:desat=0,"
-                "zscale=p=bt709:t=bt709:m=bt709:r=limited"
-            )
-        elif profile in ("log_apple", "flat_wide"):
-            # Flat profile / Apple Log in an SDR project:
-            # Transform into Rec.709 using official Apple Log 3D LUT!
-            if lut_sdr.exists():
-                return f"lut3d=file='{lut_sdr.resolve()}'"
-            return "curves=all='0/0 0.2/0.04 0.5/0.35 0.8/0.78 1/1'"
-        # Standard SDR: Pass through 1:1
-        return ""
+    if not hdr_output and profile == "hdr_hlg":
+        return (
+            "zscale=tin=arib-std-b67:pin=bt2020:min=bt2020nc,"
+            "zscale=t=linear:npl=200,"
+            "tonemap=hable:desat=0,"
+            "zscale=p=bt709:t=bt709:m=bt709:r=limited"
+        )
+    return ""
 
 
 def get_clip_hdr_tonemap_filter(clip_path) -> str:
-    """Backward compatibility alias."""
     return get_clip_color_filter(clip_path, hdr_output=False)
 
 
 def build_grade_filter(grade: dict, shot_dur: float, lut_path: str = None) -> str:
-    """Build FFmpeg video filter chain for color grading, LUT, levels, curves, vignette & fades,
-    mathematically matched 1:1 with the live NLE monitor preview (no blown-out highlights)."""
+    """Backward compatibility alias."""
     if not grade and not lut_path:
         return ""
-    grade = grade or {}
     parts = []
-
-    # 1. 3D LUT (.cube / .3dl)
     if lut_path and Path(lut_path).exists() and grade.get("use_lut", True):
         esc_lut = str(Path(lut_path).resolve()).replace("\\", "/").replace(":", r"\:")
         parts.append(f"lut3d=file='{esc_lut}'")
-
-    # 2. Multiplicative Brightness & White Balance (matching CSS linear gain & SVG matrix)
-    b_val = float(grade.get("brightness", 0.0))
-    w_val = float(grade.get("whites", 0.0))
-    k_val = float(grade.get("blacks", 0.0))
-    b = 1.0 + (b_val / 100.0) + (w_val / 220.0) + (k_val / 220.0)
-    b = max(0.2, min(2.5, b))
-
-    # White balance gains
-    t_norm = float(grade.get("temperature", 0.0)) / 100.0
-    m_norm = float(grade.get("tint", 0.0)) / 100.0
-    r_gain = max(0.4, min(1.8, 1.0 + 0.28 * t_norm + 0.16 * m_norm))
-    g_gain = max(0.4, min(1.8, 1.0 + 0.08 * t_norm - 0.22 * m_norm))
-    b_gain = max(0.4, min(1.8, 1.0 - 0.28 * t_norm + 0.16 * m_norm))
-
-    # Combined RGB gain (Brightness * White Balance)
-    rr = r_gain * b
-    gg = g_gain * b
-    bb = b_gain * b
-    if abs(rr - 1.0) > 0.005 or abs(gg - 1.0) > 0.005 or abs(bb - 1.0) > 0.005:
-        parts.append(f"colorchannelmixer=rr={rr:.4f}:gg={gg:.4f}:bb={bb:.4f}")
-
-    # 3. Contrast & Saturation (matching CSS contrast(c) and saturate(s))
-    c_val = float(grade.get("contrast", 0.0))
-    c = 1.0 + (c_val / 85.0) + (w_val / 260.0) - (k_val / 260.0)
-    curve = (grade.get("curve") or "none").strip()
-    if curve == "medium_contrast":
-        c *= 1.12
-    elif curve == "strong_contrast":
-        c *= 1.25
-    elif curve == "lighter":
-        c *= 0.95
-    elif curve == "darker":
-        c *= 1.08
-    c = max(0.3, min(2.5, c))
-
-    s = max(0.0, 1.0 + (float(grade.get("saturation", 0.0)) / 100.0))
-
-    if abs(c - 1.0) > 0.005 or abs(s - 1.0) > 0.005:
-        # Note: eq with brightness=0 and contrast=c centers precisely around midtones (128/255)
-        # exactly matching CSS contrast(c) with ZERO highlight clipping or additive wash.
-        parts.append(f"eq=contrast={c:.4f}:saturation={s:.4f}")
-
-    # 4. Vignette (0..100)
-    vig = float(grade.get("vignette", 0.0))
+    vig = float((grade or {}).get("vignette", 0.0))
     if vig > 1.0:
-        # Map 0..100 -> angle 0.15..1.25 rad (ffmpeg default PI/5≈0.63) so the
-        # slider has a clearly visible range that matches the live monitor preview.
         angle = 0.15 + min(1.0, vig / 100.0) * 1.10
         parts.append(f"vignette=angle={angle:.4f}")
-
-    # 5. Fade In & Fade Out (seconds)
-    fi = float(grade.get("fade_in", 0.0))
-    fo = float(grade.get("fade_out", 0.0))
+    fi = float((grade or {}).get("fade_in", 0.0))
+    fo = float((grade or {}).get("fade_out", 0.0))
     if fi > 0.02:
         parts.append(f"fade=t=in:st=0:d={min(fi, shot_dur):.3f}")
     if fo > 0.02:
         st_out = max(0.0, shot_dur - fo)
         parts.append(f"fade=t=out:st={st_out:.3f}:d={min(fo, shot_dur):.3f}")
-
     return ",".join(parts)
 
 
@@ -572,17 +616,11 @@ def build(
     if shot_plan and isinstance(shot_plan, list) and len(shot_plan) > 0:
         for idx, sp in enumerate(shot_plan):
             cname = sp.get("clip")
-            cpath = None
-            if sp.get("file_path") and Path(sp["file_path"]).is_file():
+            cpath = resolve_clip_file(cname, clip_files, custom_clips_dir=Path(output).parent / "custom_clips")
+            if cpath is None and sp.get("file_path") and Path(sp["file_path"]).is_file():
                 cpath = Path(sp["file_path"])
-            elif sp.get("source_path") and Path(sp["source_path"]).is_file():
+            elif cpath is None and sp.get("source_path") and Path(sp["source_path"]).is_file():
                 cpath = Path(sp["source_path"])
-            elif cname and Path(cname).is_file():
-                cpath = Path(cname)
-            elif cname and (Path(output).parent / "custom_clips" / cname).is_file():
-                cpath = Path(output).parent / "custom_clips" / cname
-            elif cname:
-                cpath = clip_by_name.get(cname)
             if cpath is None:
                 cpath = clip_files[idx % len(clip_files)]
             dur = float(sp.get("duration", shots[idx % len(shots)]["duration"]))
@@ -724,14 +762,44 @@ def build(
             # [in_point, in_point + use_duration] segment plays backwards.
             vf = f"trim=duration={use_duration:.3f},setpts=PTS-STARTPTS,reverse," + vf
 
-        # Apply intelligent profile-aware color management (HDR master vs SDR)
-        color_vf = get_clip_color_filter(clip, hdr_output=hdr_output)
-        if color_vf:
-            vf = f"{color_vf},{vf}"
+        # Unified 1:1 Color Management & Grade Pipeline (Pixel-Identical with Live Monitor)
+        # 1. Custom uploaded LUT (if user specified one)
+        sgrade = item.get("grade") or {}
+        if lut_path and Path(lut_path).exists() and sgrade.get("use_lut", True):
+            esc_lut = str(Path(lut_path).resolve()).replace("\\", "/").replace(":", r"\:")
+            vf += f",lut3d=file='{esc_lut}'"
 
-        grade_vf = build_grade_filter(item.get("grade"), duration, lut_path=lut_path)
-        if grade_vf:
-            vf += f",{grade_vf}"
+        # 2. SDR Diffuse White Tonemap (ONLY for native iPhone HLG clips in an SDR project)
+        final_b, final_c, final_s, temp, tint, prof = compute_shot_grade_params(sgrade, clip, hdr_output)
+        if not hdr_output and prof == "hdr_hlg":
+            vf = (
+                "zscale=tin=arib-std-b67:pin=bt2020:min=bt2020nc,"
+                "zscale=t=linear:npl=200,"
+                "tonemap=hable:desat=0,"
+                "zscale=p=bt709:t=bt709:m=bt709:r=limited,"
+                f"{vf}"
+            )
+
+        # 3. Unified CSS Grade 3D LUT (Exact 1:1 match to Live Monitor Preview!)
+        grade_lut_path = tmpdir / f"grade_{i:03d}.cube"
+        generate_unified_css_lut(grade_lut_path, final_b, final_c, final_s, temp, tint, size=33)
+        esc_grade_lut = str(grade_lut_path.resolve()).replace("\\", "/").replace(":", r"\:")
+        vf += f",lut3d=file='{esc_grade_lut}'"
+
+        # 4. Vignette (0..100)
+        vig = float(sgrade.get("vignette", 0.0))
+        if vig > 1.0:
+            angle = 0.15 + min(1.0, vig / 100.0) * 1.10
+            vf += f",vignette=angle={angle:.4f}"
+
+        # 5. Fades (seconds)
+        fi = float(sgrade.get("fade_in", 0.0))
+        fo = float(sgrade.get("fade_out", 0.0))
+        if fi > 0.02:
+            vf += f",fade=t=in:st=0:d={min(fi, duration):.3f}"
+        if fo > 0.02:
+            st_out = max(0.0, duration - fo)
+            vf += f",fade=t=out:st={st_out:.3f}:d={min(fo, duration):.3f}"
 
         if freeze_pad > 0:
             vf += f",tpad=stop_mode=clone:stop_duration={freeze_pad:.3f}"

@@ -1366,12 +1366,14 @@ let cachedClipProfiles = {};
 
 function getShotClipProfile(shot) {
   if (!shot || !shot.clip) return "sdr";
+  const g = shot.grade || {};
+  if (g.profile) return g.profile;
   const name = shot.clip;
-  if (cachedClipProfiles[name]) return cachedClipProfiles[name];
   const lower = name.toLowerCase();
-  if (lower.includes("log") || lower.includes("flat") || (lower.startsWith("a001_") && (lower.includes("_c0") || lower.includes("pm_c")))) {
+  if (lower.includes("log") || lower.includes("flat") || lower.startsWith("a001_")) {
     return "log_apple";
   }
+  if (cachedClipProfiles[name]) return cachedClipProfiles[name];
   if (lower.includes("hlg") || lower.includes("dovi") || lower.startsWith("261003_") || lower.startsWith("img_")) {
     return "hdr_hlg";
   }
@@ -1564,10 +1566,10 @@ function applyGradeFilterToPreview() {
       baseSaturation = 1.34;
     }
   } else if (projectHdrOutput) {
-    // Non-log clips in HDR mode: subtle wide-gamut vibrancy & dynamic range lift
-    baseBrightness = 1.02;
-    baseContrast = 1.03;
-    baseSaturation = 1.06;
+    // Non-log clips in HDR mode: wide-gamut dynamic range lift
+    baseBrightness = 1.05;
+    baseContrast = 1.08;
+    baseSaturation = 1.12;
   } else {
     // Non-log clips in SDR mode: standard 1.0
     baseBrightness = 1.0;
@@ -1827,6 +1829,8 @@ function seekSequenceToTime(targetTimeSec) {
   if (!shotPlan || !shotPlan.length) return;
   const totalDur = shotPlan.reduce((acc, s) => acc + Number(s.duration || 0), 0) || 10.0;
   const clampedTime = Math.max(0, Math.min(totalDur, targetTimeSec));
+
+  showMonitorTab("source");
 
   // 1. Move playhead indicator
   updatePlayheadPosition(clampedTime);
@@ -3881,6 +3885,29 @@ wireGradeSlider(slGradeTint, valGradeTint, "tint");
 wireGradeSlider(slGradeWhites, valGradeWhites, "whites");
 wireGradeSlider(slGradeBlacks, valGradeBlacks, "blacks");
 wireGradeSlider(slGradeVignette, valGradeVignette, "vignette", true);
+
+if (inspHdrProfileBadge) {
+  inspHdrProfileBadge.style.cursor = "pointer";
+  inspHdrProfileBadge.title = "Click to cycle profile: Apple Log (Flat) ↔ iPhone HLG HDR ↔ Rec.709 SDR";
+  inspHdrProfileBadge.addEventListener("click", () => {
+    if (selectedShotIdx < 0 || selectedShotIdx >= shotPlan.length) return;
+    pushUndoState();
+    const shot = shotPlan[selectedShotIdx];
+    const cur = getShotClipProfile(shot);
+    const g = ensureShotGrade(shot);
+    if (cur === "log_apple") {
+      g.profile = "hdr_hlg";
+    } else if (cur === "hdr_hlg") {
+      g.profile = "sdr";
+    } else {
+      g.profile = "log_apple";
+    }
+    populateInspector();
+    applyGradeFilterToPreview();
+    renderTimelineTrack();
+    markTimelineDirty();
+  });
+}
 
 if (selGradeCurve) {
   selGradeCurve.addEventListener("change", () => {
